@@ -1,9 +1,10 @@
 mod app;
+mod keyboard;
 mod oscilloscope;
 
 pub fn run() {
     let options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default().with_inner_size([600.0, 500.0]),
+        viewport: eframe::egui::ViewportBuilder::default().with_inner_size([700.0, 700.0]),
         ..Default::default()
     };
 

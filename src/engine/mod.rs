@@ -1,4 +1,5 @@
 pub mod oscillator;
+pub mod voice;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, SampleFormat, StreamConfig, SupportedStreamConfig};

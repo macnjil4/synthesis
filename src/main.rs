@@ -1,5 +1,6 @@
 mod engine;
 mod gui;
+mod midi;
 
 use clap::Parser;
 use engine::oscillator::Waveform;

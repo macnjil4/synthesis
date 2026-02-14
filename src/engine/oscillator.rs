@@ -1,5 +1,27 @@
 use fundsp::prelude32::*;
 
+use super::voice::Voice;
+
+/// ADSR envelope parameters.
+#[derive(Clone, Copy, PartialEq)]
+pub struct AdsrParams {
+    pub attack: f32,
+    pub decay: f32,
+    pub sustain: f32,
+    pub release: f32,
+}
+
+impl Default for AdsrParams {
+    fn default() -> Self {
+        Self {
+            attack: 0.01,
+            decay: 0.1,
+            sustain: 0.7,
+            release: 0.3,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]
 pub enum Waveform {
     Sine,
@@ -35,6 +57,7 @@ pub fn build_oscillator(waveform: Waveform, frequency: f32, amplitude: f32) -> B
 
 /// Build a fundsp audio graph with shared (atomic) parameters and snoop outputs.
 /// Returns the graph plus left/right Snoop frontends for oscilloscope visualization.
+#[cfg(test)]
 pub fn build_oscillator_shared(
     waveform: Waveform,
     freq_shared: &Shared,
@@ -66,6 +89,73 @@ pub fn build_oscillator_shared(
     };
 
     (graph, snoop_left, snoop_right)
+}
+
+/// Build a single polyphonic voice unit with ADSR envelope.
+/// Returns a 0-input, 2-output (stereo) AudioUnit.
+pub fn build_voice_unit(
+    waveform: Waveform,
+    freq: &Shared,
+    gate: &Shared,
+    velocity: &Shared,
+    master_amp: &Shared,
+    adsr: &AdsrParams,
+) -> Box<dyn AudioUnit> {
+    let freq_control = var(freq) >> follow(0.01);
+    let envelope = var(gate) >> adsr_live(adsr.attack, adsr.decay, adsr.sustain, adsr.release);
+    let vel = var(velocity);
+    let amp_control = var(master_amp) >> follow(0.01);
+
+    match waveform {
+        Waveform::Sine => Box::new(
+            ((freq_control >> sine()) * envelope * vel * amp_control) >> split::<U2>(),
+        ),
+        Waveform::Saw => Box::new(
+            ((freq_control >> saw()) * envelope * vel * amp_control) >> split::<U2>(),
+        ),
+        Waveform::Square => Box::new(
+            ((freq_control >> square()) * envelope * vel * amp_control) >> split::<U2>(),
+        ),
+        Waveform::Triangle => Box::new(
+            ((freq_control >> triangle()) * envelope * vel * amp_control) >> split::<U2>(),
+        ),
+    }
+}
+
+/// Build a polyphonic audio graph with 8 voices summed together.
+/// Returns the graph plus left/right Snoop frontends for oscilloscope visualization.
+pub fn build_poly_graph(
+    waveform: Waveform,
+    voices: &[Voice],
+    master_amp: &Shared,
+    adsr: &AdsrParams,
+) -> (Box<dyn AudioUnit>, Snoop, Snoop) {
+    let mut net = Net::new(0, 2);
+
+    let (snoop_l, snoop_backend_l) = snoop(32768);
+    let (snoop_r, snoop_backend_r) = snoop(32768);
+
+    let snoop_l_id = net.push(Box::new(snoop_backend_l));
+    let snoop_r_id = net.push(Box::new(snoop_backend_r));
+
+    net.connect_output(snoop_l_id, 0, 0);
+    net.connect_output(snoop_r_id, 0, 1);
+
+    for voice in voices {
+        let unit = build_voice_unit(
+            waveform,
+            &voice.freq,
+            &voice.gate,
+            &voice.velocity,
+            master_amp,
+            adsr,
+        );
+        let voice_id = net.push(unit);
+        net.connect(voice_id, 0, snoop_l_id, 0);
+        net.connect(voice_id, 1, snoop_r_id, 0);
+    }
+
+    (Box::new(net), snoop_l, snoop_r)
 }
 
 #[cfg(test)]
@@ -239,5 +329,142 @@ mod tests {
             snoop_r.total() > 0,
             "right snoop should have received samples"
         );
+    }
+
+    #[test]
+    fn build_voice_unit_returns_stereo() {
+        let freq = Shared::new(440.0);
+        let gate = Shared::new(1.0);
+        let velocity = Shared::new(1.0);
+        let master_amp = Shared::new(0.5);
+        let adsr = AdsrParams::default();
+
+        for waveform in [
+            Waveform::Sine,
+            Waveform::Saw,
+            Waveform::Square,
+            Waveform::Triangle,
+        ] {
+            let unit = build_voice_unit(waveform, &freq, &gate, &velocity, &master_amp, &adsr);
+            assert_eq!(unit.inputs(), 0, "{waveform} voice should have 0 inputs");
+            assert_eq!(unit.outputs(), 2, "{waveform} voice should have 2 outputs");
+        }
+    }
+
+    #[test]
+    fn build_voice_unit_produces_sound_when_gate_triggered() {
+        let freq = Shared::new(440.0);
+        let gate = Shared::new(0.0); // start with gate off
+        let velocity = Shared::new(1.0);
+        let master_amp = Shared::new(0.5);
+        let adsr = AdsrParams {
+            attack: 0.001,
+            decay: 0.0,
+            sustain: 1.0,
+            release: 0.01,
+        };
+
+        let mut unit = build_voice_unit(Waveform::Sine, &freq, &gate, &velocity, &master_amp, &adsr);
+        unit.set_sample_rate(SAMPLE_RATE);
+        unit.allocate();
+
+        // Run some samples with gate off
+        for _ in 0..100 {
+            unit.get_stereo();
+        }
+
+        // Trigger the gate (simulates note_on)
+        gate.set_value(1.0);
+
+        // Run enough samples for ADSR attack + filter convergence
+        let mut samples = Vec::new();
+        for _ in 0..8192 {
+            samples.push(unit.get_stereo());
+        }
+
+        let tail = &samples[4096..];
+        let has_nonzero = tail.iter().any(|(l, r)| *l != 0.0 || *r != 0.0);
+        assert!(has_nonzero, "voice should produce sound after gate trigger");
+    }
+
+    #[test]
+    fn build_voice_unit_silent_when_gate_off() {
+        let freq = Shared::new(440.0);
+        let gate = Shared::new(0.0);
+        let velocity = Shared::new(1.0);
+        let master_amp = Shared::new(0.5);
+        let adsr = AdsrParams {
+            attack: 0.01,
+            decay: 0.1,
+            sustain: 0.7,
+            release: 0.001,
+        };
+
+        let unit = build_voice_unit(Waveform::Sine, &freq, &gate, &velocity, &master_amp, &adsr);
+        // With gate=0 and very short release, output should stay silent
+        let samples = collect_samples(unit, 4096);
+        let tail = &samples[samples.len() - 256..];
+        let max_tail = tail
+            .iter()
+            .map(|(l, r)| l.abs().max(r.abs()))
+            .fold(0.0f32, f32::max);
+        assert!(
+            max_tail < 0.01,
+            "voice with gate off should be near-silent, got {max_tail}"
+        );
+    }
+
+    #[test]
+    fn build_poly_graph_returns_stereo() {
+        let voices: Vec<Voice> = (0..8).map(|_| Voice::new()).collect();
+        let master_amp = Shared::new(0.5);
+        let adsr = AdsrParams::default();
+
+        for waveform in [
+            Waveform::Sine,
+            Waveform::Saw,
+            Waveform::Square,
+            Waveform::Triangle,
+        ] {
+            let (graph, _, _) = build_poly_graph(waveform, &voices, &master_amp, &adsr);
+            assert_eq!(graph.inputs(), 0, "{waveform} poly should have 0 inputs");
+            assert_eq!(graph.outputs(), 2, "{waveform} poly should have 2 outputs");
+        }
+    }
+
+    #[test]
+    fn build_poly_graph_snoop_receives_data() {
+        let voices: Vec<Voice> = (0..8).map(|_| Voice::new()).collect();
+        // Activate one voice
+        voices[0].freq.set_value(440.0);
+        voices[0].gate.set_value(1.0);
+        voices[0].velocity.set_value(1.0);
+
+        let master_amp = Shared::new(0.5);
+        let adsr = AdsrParams {
+            attack: 0.001,
+            decay: 0.0,
+            sustain: 1.0,
+            release: 0.01,
+        };
+
+        let (graph, mut snoop_l, mut snoop_r) =
+            build_poly_graph(Waveform::Sine, &voices, &master_amp, &adsr);
+        let _samples = collect_samples(graph, 2048);
+
+        snoop_l.update();
+        snoop_r.update();
+
+        assert!(snoop_l.total() > 0, "left snoop should have received data");
+        assert!(snoop_r.total() > 0, "right snoop should have received data");
+    }
+
+    #[test]
+    fn adsr_params_default_values() {
+        let adsr = AdsrParams::default();
+        assert_eq!(adsr.attack, 0.01);
+        assert_eq!(adsr.decay, 0.1);
+        assert_eq!(adsr.sustain, 0.7);
+        assert_eq!(adsr.release, 0.3);
     }
 }

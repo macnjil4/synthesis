@@ -43,7 +43,7 @@ cargo run --release -- --waveform saw --frequency 261.63 --duration 3
 # Play a quiet square wave
 cargo run --release -- -w square -a 0.2
 
-# Launch the GUI (polyphony, ADSR, filter, LFO, MIDI, virtual keyboard)
+# Launch the GUI (polyphony, ADSR, filter, LFO, effects, presets, MIDI, virtual keyboard)
 cargo run --release -- --gui
 ```
 
@@ -54,6 +54,9 @@ cargo run --release -- --gui
 - **ADSR envelope**: attack, decay, sustain, release sliders
 - **Resonant filter**: lowpass, highpass, bandpass with cutoff and resonance
 - **LFO**: sine, triangle, saw waveforms targeting frequency, cutoff, or amplitude
+- **Effects**: delay (time, feedback, mix), reverb (room size, time, mix), chorus (separation, variation, mod freq, mix)
+- **Configurable effects chain**: reorderable slots, per-effect enable/bypass
+- **Presets**: 5 factory presets (Init, Warm Pad, Sharp Lead, Deep Bass, Space FX), save/load user presets
 - **MIDI input**: connect to any MIDI controller
 - **Virtual keyboard**: 2-octave piano (C3–B4) with mouse interaction
 - **8-voice polyphony** with voice activity indicators
@@ -65,14 +68,16 @@ cargo run --release -- --gui
 src/
 ├── main.rs              # CLI entry point (clap), --gui flag
 ├── midi.rs              # MIDI input handler (midir), NoteEvent
+├── preset.rs            # Preset system: save/load JSON, factory presets
 ├── engine/
 │   ├── mod.rs           # Audio output (cpal), init/start helpers
-│   ├── oscillator.rs    # Waveform generation (fundsp), ADSR, filter, LFO, poly graph
+│   ├── oscillator.rs    # Waveform generation (fundsp), ADSR, filter, LFO, effects, poly graph
 │   ├── filter.rs        # FilterConfig, LfoConfig, Mul2, Add2, resonance_to_q
+│   ├── effects.rs       # FeedbackDelay, EffectsConfig, wire_delay/reverb/chorus
 │   └── voice.rs         # Voice, VoiceAllocator, midi_note_to_freq
 └── gui/
     ├── mod.rs           # GUI entry point (eframe)
-    ├── app.rs           # SynthApp: polyphony, MIDI, ADSR controls
+    ├── app.rs           # SynthApp: polyphony, MIDI, effects, presets
     ├── keyboard.rs      # Virtual piano keyboard widget
     └── oscilloscope.rs  # Waveform visualizer (egui_plot)
 ```

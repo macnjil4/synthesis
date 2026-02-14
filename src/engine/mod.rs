@@ -1,3 +1,4 @@
+pub mod effects;
 pub mod filter;
 pub mod oscillator;
 pub mod voice;

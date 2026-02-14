@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-02-14
+
+### Added
+
+- 3 audio effects: delay (time + feedback), reverb (room size + time), chorus (separation + variation + mod freq)
+- Configurable effects chain with reorderable slots (click to swap)
+- Dry/wet mix control per effect via `Shared` (no rebuild needed)
+- Custom `FeedbackDelay` AudioNode with ring buffer for delay with feedback
+- `wire_delay()`, `wire_reverb()`, `wire_chorus()` graph wiring helpers
+- `EffectSlot`, `EffectsConfig` types in `src/engine/effects.rs`
+- Preset system with JSON serialization (`serde`/`serde_json`)
+- Save/load user presets to `~/.synthesis/presets/`
+- 5 factory presets: Init, Warm Pad, Sharp Lead, Deep Bass, Space FX
+- `Preset` module (`src/preset.rs`): save, load, list, factory presets
+- Preset selector dropdown and save-as text input in GUI
+- Unit tests for effects, presets, and effects-enabled poly graph
+- Dependencies: `serde` 1 (with derive), `serde_json` 1, `dirs` 6
+
+### Changed
+
+- `build_poly_graph()` extended with effects chain between voice sum and snoops
+- Voices summed through `pass()` nodes for effects insertion point
+- Effects enable/disable, order, and compile-time params trigger graph rebuild
+- All synth parameter types derive `Serialize`/`Deserialize`
+- GUI wrapped in `ScrollArea` for vertical scrolling
+- Window size increased to 900x950 to accommodate effects and presets
+
 ## [0.4.0] - 2026-02-14
 
 ### Added

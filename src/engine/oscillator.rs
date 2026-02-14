@@ -1,12 +1,14 @@
 use fundsp::prelude32::*;
+use serde::{Deserialize, Serialize};
 
+use super::effects::{EffectsConfig, EffectSlot, wire_delay, wire_reverb, wire_chorus};
 use super::filter::{
     Add2, FilterConfig, FilterType, LfoConfig, LfoTarget, LfoWaveform, Mul2, resonance_to_q,
 };
 use super::voice::Voice;
 
 /// ADSR envelope parameters.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct AdsrParams {
     pub attack: f32,
     pub decay: f32,
@@ -25,7 +27,7 @@ impl Default for AdsrParams {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum, Serialize, Deserialize)]
 pub enum Waveform {
     Sine,
     Saw,
@@ -257,7 +259,7 @@ pub fn build_voice_unit(
     Box::new(net)
 }
 
-/// Build a polyphonic audio graph with 8 voices summed together.
+/// Build a polyphonic audio graph with 8 voices summed together, plus effects chain.
 /// Returns the graph plus left/right Snoop frontends for oscilloscope visualization.
 #[allow(clippy::too_many_arguments)]
 pub fn build_poly_graph(
@@ -271,6 +273,12 @@ pub fn build_poly_graph(
     lfo_cfg: &LfoConfig,
     lfo_rate: &Shared,
     lfo_depth: &Shared,
+    effects_cfg: &EffectsConfig,
+    delay_time: &Shared,
+    delay_feedback: &Shared,
+    delay_mix: &Shared,
+    reverb_mix: &Shared,
+    chorus_mix: &Shared,
 ) -> (Box<dyn AudioUnit>, Snoop, Snoop) {
     let mut net = Net::new(0, 2);
 
@@ -282,6 +290,10 @@ pub fn build_poly_graph(
 
     net.connect_output(snoop_l_id, 0, 0);
     net.connect_output(snoop_r_id, 0, 1);
+
+    // Sum points: pass() nodes where all voices feed into (Net auto-sums multiple connections)
+    let sum_l_id = net.push(Box::new(pass()));
+    let sum_r_id = net.push(Box::new(pass()));
 
     for voice in voices {
         let unit = build_voice_unit(
@@ -299,9 +311,36 @@ pub fn build_poly_graph(
             lfo_depth,
         );
         let voice_id = net.push(unit);
-        net.connect(voice_id, 0, snoop_l_id, 0);
-        net.connect(voice_id, 1, snoop_r_id, 0);
+        net.connect(voice_id, 0, sum_l_id, 0);
+        net.connect(voice_id, 1, sum_r_id, 0);
     }
+
+    // Effects chain: start from sum points
+    let mut chain_l = sum_l_id;
+    let mut chain_r = sum_r_id;
+
+    for &slot in &effects_cfg.order {
+        match slot {
+            EffectSlot::Delay if effects_cfg.delay_enabled => {
+                chain_l = wire_delay(&mut net, chain_l, delay_time, delay_feedback, delay_mix);
+                chain_r = wire_delay(&mut net, chain_r, delay_time, delay_feedback, delay_mix);
+            }
+            EffectSlot::Reverb if effects_cfg.reverb_enabled => {
+                let (rl, rr) = wire_reverb(&mut net, chain_l, chain_r, effects_cfg, reverb_mix);
+                chain_l = rl;
+                chain_r = rr;
+            }
+            EffectSlot::Chorus if effects_cfg.chorus_enabled => {
+                chain_l = wire_chorus(&mut net, chain_l, effects_cfg, chorus_mix);
+                chain_r = wire_chorus(&mut net, chain_r, effects_cfg, chorus_mix);
+            }
+            _ => {}
+        }
+    }
+
+    // Connect effects output to snoops
+    net.connect(chain_l, 0, snoop_l_id, 0);
+    net.connect(chain_r, 0, snoop_r_id, 0);
 
     (Box::new(net), snoop_l, snoop_r)
 }
@@ -332,6 +371,20 @@ mod tests {
             Shared::new(0.0),    // resonance
             Shared::new(1.0),    // lfo_rate
             Shared::new(0.0),    // lfo_depth
+        )
+    }
+
+    fn default_effects_cfg() -> EffectsConfig {
+        EffectsConfig::default()
+    }
+
+    fn default_effects_shared() -> (Shared, Shared, Shared, Shared, Shared) {
+        (
+            Shared::new(0.3),  // delay_time
+            Shared::new(0.3),  // delay_feedback
+            Shared::new(0.0),  // delay_mix
+            Shared::new(0.0),  // reverb_mix
+            Shared::new(0.0),  // chorus_mix
         )
     }
 
@@ -776,6 +829,9 @@ mod tests {
         let filter_cfg = default_filter_cfg();
         let lfo_cfg = default_lfo_cfg();
         let (cutoff, resonance, lfo_rate, lfo_depth) = default_shared_params();
+        let effects_cfg = default_effects_cfg();
+        let (delay_time, delay_feedback, delay_mix, reverb_mix, chorus_mix) =
+            default_effects_shared();
 
         for waveform in [
             Waveform::Sine,
@@ -786,6 +842,8 @@ mod tests {
             let (graph, _, _) = build_poly_graph(
                 waveform, &voices, &master_amp, &adsr,
                 &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
+                &effects_cfg, &delay_time, &delay_feedback, &delay_mix,
+                &reverb_mix, &chorus_mix,
             );
             assert_eq!(graph.inputs(), 0, "{waveform} poly should have 0 inputs");
             assert_eq!(graph.outputs(), 2, "{waveform} poly should have 2 outputs");
@@ -809,10 +867,15 @@ mod tests {
         let filter_cfg = default_filter_cfg();
         let lfo_cfg = default_lfo_cfg();
         let (cutoff, resonance, lfo_rate, lfo_depth) = default_shared_params();
+        let effects_cfg = default_effects_cfg();
+        let (delay_time, delay_feedback, delay_mix, reverb_mix, chorus_mix) =
+            default_effects_shared();
 
         let (graph, mut snoop_l, mut snoop_r) = build_poly_graph(
             Waveform::Sine, &voices, &master_amp, &adsr,
             &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
+            &effects_cfg, &delay_time, &delay_feedback, &delay_mix,
+            &reverb_mix, &chorus_mix,
         );
         let _samples = collect_samples(graph, 2048);
 
@@ -821,6 +884,50 @@ mod tests {
 
         assert!(snoop_l.total() > 0, "left snoop should have received data");
         assert!(snoop_r.total() > 0, "right snoop should have received data");
+    }
+
+    #[test]
+    fn build_poly_graph_with_effects_enabled() {
+        let voices: Vec<Voice> = (0..8).map(|_| Voice::new()).collect();
+        voices[0].freq.set_value(440.0);
+        voices[0].gate.set_value(1.0);
+        voices[0].velocity.set_value(1.0);
+
+        let master_amp = Shared::new(0.5);
+        let adsr = AdsrParams {
+            attack: 0.001,
+            decay: 0.0,
+            sustain: 1.0,
+            release: 0.01,
+        };
+        let filter_cfg = default_filter_cfg();
+        let lfo_cfg = default_lfo_cfg();
+        let (cutoff, resonance, lfo_rate, lfo_depth) = default_shared_params();
+        let effects_cfg = EffectsConfig {
+            delay_enabled: true,
+            reverb_enabled: true,
+            chorus_enabled: true,
+            ..EffectsConfig::default()
+        };
+        let delay_time = Shared::new(0.1);
+        let delay_feedback = Shared::new(0.3);
+        let delay_mix = Shared::new(0.3);
+        let reverb_mix = Shared::new(0.3);
+        let chorus_mix = Shared::new(0.3);
+
+        let (graph, mut snoop_l, mut snoop_r) = build_poly_graph(
+            Waveform::Sine, &voices, &master_amp, &adsr,
+            &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
+            &effects_cfg, &delay_time, &delay_feedback, &delay_mix,
+            &reverb_mix, &chorus_mix,
+        );
+        let _samples = collect_samples(graph, 2048);
+
+        snoop_l.update();
+        snoop_r.update();
+
+        assert!(snoop_l.total() > 0, "snoop should receive data with effects");
+        assert!(snoop_r.total() > 0, "snoop should receive data with effects");
     }
 
     #[test]

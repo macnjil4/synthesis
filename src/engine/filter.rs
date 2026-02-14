@@ -1,7 +1,8 @@
 use fundsp::prelude32::*;
+use serde::{Deserialize, Serialize};
 
 /// Filter type for the resonant filter.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum FilterType {
     Lowpass,
     Highpass,
@@ -9,7 +10,7 @@ pub enum FilterType {
 }
 
 /// Filter configuration (type + enabled). Changes trigger a graph rebuild.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct FilterConfig {
     pub filter_type: FilterType,
     pub enabled: bool,
@@ -25,7 +26,7 @@ impl Default for FilterConfig {
 }
 
 /// LFO waveform shape.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum LfoWaveform {
     Sine,
     Triangle,
@@ -33,7 +34,7 @@ pub enum LfoWaveform {
 }
 
 /// LFO modulation target.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum LfoTarget {
     Frequency,
     Cutoff,
@@ -41,7 +42,7 @@ pub enum LfoTarget {
 }
 
 /// LFO configuration (waveform + target + enabled). Changes trigger a graph rebuild.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct LfoConfig {
     pub waveform: LfoWaveform,
     pub target: LfoTarget,

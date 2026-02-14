@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Unit tests for oscillator module (stereo output, non-silence, zero amplitude, amplitude bounds, channel identity, display names)
+- Integration tests for CLI (help flag, invalid waveform rejection)
+
 ## [0.2.0] - 2026-02-14
 
 ### Added

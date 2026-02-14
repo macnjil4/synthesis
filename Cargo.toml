@@ -1,0 +1,8 @@
+[package]
+name = "synthesis"
+version = "0.1.0"
+edition = "2024"
+description = "Playground with Rust"
+license = "MIT"
+
+[dependencies]

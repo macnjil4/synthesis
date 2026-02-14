@@ -18,6 +18,7 @@ fn help_flag_prints_usage() {
     assert!(stdout.contains("--frequency"));
     assert!(stdout.contains("--amplitude"));
     assert!(stdout.contains("--duration"));
+    assert!(stdout.contains("--gui"));
 }
 
 #[test]

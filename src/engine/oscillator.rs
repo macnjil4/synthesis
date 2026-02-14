@@ -1,6 +1,6 @@
 use fundsp::prelude32::*;
 
-#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]
 pub enum Waveform {
     Sine,
     Saw,
@@ -31,6 +31,41 @@ pub fn build_oscillator(waveform: Waveform, frequency: f32, amplitude: f32) -> B
         Waveform::Square => Box::new(dc(freq) >> (square() * dc(amp)) >> split::<U2>()),
         Waveform::Triangle => Box::new(dc(freq) >> (triangle() * dc(amp)) >> split::<U2>()),
     }
+}
+
+/// Build a fundsp audio graph with shared (atomic) parameters and snoop outputs.
+/// Returns the graph plus left/right Snoop frontends for oscilloscope visualization.
+pub fn build_oscillator_shared(
+    waveform: Waveform,
+    freq_shared: &Shared,
+    amp_shared: &Shared,
+) -> (Box<dyn AudioUnit>, Snoop, Snoop) {
+    let (snoop_left, snoop_backend_left) = snoop(32768);
+    let (snoop_right, snoop_backend_right) = snoop(32768);
+
+    let freq_control = var(freq_shared) >> follow(0.01);
+    let amp_control = var(amp_shared) >> follow(0.01);
+
+    let graph: Box<dyn AudioUnit> = match waveform {
+        Waveform::Sine => Box::new(
+            freq_control >> (sine() * amp_control) >> split::<U2>()
+                >> (snoop_backend_left | snoop_backend_right),
+        ),
+        Waveform::Saw => Box::new(
+            freq_control >> (saw() * amp_control) >> split::<U2>()
+                >> (snoop_backend_left | snoop_backend_right),
+        ),
+        Waveform::Square => Box::new(
+            freq_control >> (square() * amp_control) >> split::<U2>()
+                >> (snoop_backend_left | snoop_backend_right),
+        ),
+        Waveform::Triangle => Box::new(
+            freq_control >> (triangle() * amp_control) >> split::<U2>()
+                >> (snoop_backend_left | snoop_backend_right),
+        ),
+    };
+
+    (graph, snoop_left, snoop_right)
 }
 
 #[cfg(test)]
@@ -137,5 +172,72 @@ mod tests {
         assert_eq!(Waveform::Saw.to_string(), "saw");
         assert_eq!(Waveform::Square.to_string(), "square");
         assert_eq!(Waveform::Triangle.to_string(), "triangle");
+    }
+
+    #[test]
+    fn build_oscillator_shared_returns_stereo_graph() {
+        let freq = Shared::new(440.0);
+        let amp = Shared::new(0.5);
+        for waveform in [
+            Waveform::Sine,
+            Waveform::Saw,
+            Waveform::Square,
+            Waveform::Triangle,
+        ] {
+            let (graph, _, _) = build_oscillator_shared(waveform, &freq, &amp);
+            assert_eq!(graph.inputs(), 0, "{waveform} shared should have 0 inputs");
+            assert_eq!(
+                graph.outputs(),
+                2,
+                "{waveform} shared should have 2 outputs (stereo)"
+            );
+        }
+    }
+
+    #[test]
+    fn build_oscillator_shared_responds_to_param_changes() {
+        let freq = Shared::new(440.0);
+        let amp = Shared::new(0.5);
+        let (graph, _, _) = build_oscillator_shared(Waveform::Sine, &freq, &amp);
+        let samples_before = collect_samples(graph, 512);
+        let has_nonzero = samples_before.iter().any(|(l, r)| *l != 0.0 || *r != 0.0);
+        assert!(has_nonzero, "shared oscillator should produce non-silent output");
+
+        // Change amplitude to 0 and verify output approaches silence
+        amp.set_value(0.0);
+        let (graph, _, _) = build_oscillator_shared(Waveform::Sine, &freq, &amp);
+        // Run enough samples for follow filter to converge
+        let samples_after = collect_samples(graph, 8192);
+        // Last 256 samples should be near-silent
+        let tail = &samples_after[samples_after.len() - 256..];
+        let max_tail = tail
+            .iter()
+            .map(|(l, r)| l.abs().max(r.abs()))
+            .fold(0.0f32, f32::max);
+        assert!(
+            max_tail < 0.05,
+            "after setting amplitude to 0, tail should be near-silent, got max {max_tail}"
+        );
+    }
+
+    #[test]
+    fn build_oscillator_shared_snoop_receives_data() {
+        let freq = Shared::new(440.0);
+        let amp = Shared::new(0.5);
+        let (graph, mut snoop_l, mut snoop_r) =
+            build_oscillator_shared(Waveform::Sine, &freq, &amp);
+        let _samples = collect_samples(graph, 1024);
+
+        snoop_l.update();
+        snoop_r.update();
+
+        assert!(
+            snoop_l.total() > 0,
+            "left snoop should have received samples"
+        );
+        assert!(
+            snoop_r.total() > 0,
+            "right snoop should have received samples"
+        );
     }
 }

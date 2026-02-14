@@ -1,10 +1,53 @@
 pub mod oscillator;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{SampleFormat, StreamConfig};
+use cpal::{Device, SampleFormat, StreamConfig, SupportedStreamConfig};
 use fundsp::audiounit::AudioUnit;
 
 use crate::engine::oscillator::{Waveform, build_oscillator};
+
+/// Initialize the default audio output device and its preferred configuration.
+pub fn init_audio_device() -> (Device, SupportedStreamConfig) {
+    let host = cpal::default_host();
+    let device = host
+        .default_output_device()
+        .expect("no output audio device available");
+    let supported_config = device
+        .default_output_config()
+        .expect("no default output config");
+    (device, supported_config)
+}
+
+/// Build and start an audio output stream from the given graph.
+/// The returned Stream is already playing.
+pub fn start_stream(
+    device: &Device,
+    supported_config: &SupportedStreamConfig,
+    mut graph: Box<dyn AudioUnit>,
+) -> cpal::Stream {
+    let sample_rate = supported_config.sample_rate();
+    let channels = supported_config.channels() as usize;
+
+    let config = StreamConfig {
+        channels: channels as u16,
+        sample_rate,
+        buffer_size: cpal::BufferSize::Fixed(256),
+    };
+
+    graph.set_sample_rate(sample_rate as f64);
+    graph.allocate();
+
+    let sample_format = supported_config.sample_format();
+    let stream = match sample_format {
+        SampleFormat::F32 => build_stream::<f32>(device, &config, graph, channels),
+        SampleFormat::I16 => build_stream::<i16>(device, &config, graph, channels),
+        SampleFormat::U16 => build_stream::<u16>(device, &config, graph, channels),
+        _ => panic!("unsupported sample format: {sample_format}"),
+    };
+
+    stream.play().expect("failed to play audio stream");
+    stream
+}
 
 /// Initialize audio output and play the given waveform for the specified duration.
 pub fn play(waveform: Waveform, frequency: f32, amplitude: f32, duration_secs: f32) {

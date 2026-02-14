@@ -29,6 +29,7 @@ cargo run --release -- [OPTIONS]
 | `-f, --frequency` | Frequency in Hz | `440` |
 | `-a, --amplitude` | Amplitude (0.0 to 1.0) | `0.5` |
 | `-d, --duration` | Duration in seconds | `5` |
+| `--gui` | Launch the graphical user interface | off |
 
 ### Examples
 
@@ -41,16 +42,23 @@ cargo run --release -- --waveform saw --frequency 261.63 --duration 3
 
 # Play a quiet square wave
 cargo run --release -- -w square -a 0.2
+
+# Launch the GUI (real-time controls, oscilloscope)
+cargo run --release -- --gui
 ```
 
 ## Project structure
 
 ```
 src/
-├── main.rs              # CLI entry point (clap)
-└── engine/
-    ├── mod.rs           # Audio output (cpal)
-    └── oscillator.rs    # Waveform generation (fundsp)
+├── main.rs              # CLI entry point (clap), --gui flag
+├── engine/
+│   ├── mod.rs           # Audio output (cpal), init/start helpers
+│   └── oscillator.rs    # Waveform generation (fundsp), shared params
+└── gui/
+    ├── mod.rs           # GUI entry point (eframe)
+    ├── app.rs           # SynthApp: controls, lifecycle, audio stream
+    └── oscilloscope.rs  # Waveform visualizer (egui_plot)
 ```
 
 ## Test

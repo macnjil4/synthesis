@@ -9,3 +9,5 @@ license = "MIT"
 cpal = "0.17"
 fundsp = "0.23"
 clap = { version = "4", features = ["derive"] }
+eframe = "0.33"
+egui_plot = "0.34"

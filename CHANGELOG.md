@@ -9,8 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Unit tests for oscillator module (stereo output, non-silence, zero amplitude, amplitude bounds, channel identity, display names)
-- Integration tests for CLI (help flag, invalid waveform rejection)
+- GUI mode via `--gui` flag: egui/eframe window with real-time audio controls
+- Waveform selector (radio buttons: sine, saw, square, triangle)
+- Frequency slider (20 Hz – 20 kHz, logarithmic scale)
+- Volume slider (0.0 – 1.0)
+- Play/stop button with live stream management
+- Oscilloscope visualization using `egui_plot` (left + right channels)
+- Lock-free parameter control via `fundsp::Shared` (atomic floats)
+- Audio snoop ring buffers (`fundsp::Snoop`) for waveform display
+- Engine helpers: `init_audio_device()`, `start_stream()`, `build_oscillator_shared()`
+- Unit tests for `build_oscillator_shared` (stereo output, parameter response, snoop data)
+- Integration test for `--gui` flag in CLI help
+- Dependencies: `eframe` 0.33, `egui_plot` 0.34
+
+### Changed
+
+- `Waveform` enum now derives `PartialEq` (needed for waveform change detection)
 
 ## [0.2.0] - 2026-02-14
 

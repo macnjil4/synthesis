@@ -1,4 +1,5 @@
 mod engine;
+mod gui;
 
 use clap::Parser;
 use engine::oscillator::Waveform;
@@ -21,9 +22,17 @@ struct Cli {
     /// Duration in seconds
     #[arg(short, long, default_value_t = 5.0)]
     duration: f32,
+
+    /// Launch the graphical user interface
+    #[arg(long)]
+    gui: bool,
 }
 
 fn main() {
     let cli = Cli::parse();
-    engine::play(cli.waveform, cli.frequency, cli.amplitude, cli.duration);
+    if cli.gui {
+        gui::run();
+    } else {
+        engine::play(cli.waveform, cli.frequency, cli.amplitude, cli.duration);
+    }
 }

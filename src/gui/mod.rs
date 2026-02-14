@@ -4,7 +4,7 @@ mod oscilloscope;
 
 pub fn run() {
     let options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default().with_inner_size([700.0, 700.0]),
+        viewport: eframe::egui::ViewportBuilder::default().with_inner_size([800.0, 850.0]),
         ..Default::default()
     };
 

@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-02-14
+
+### Added
+
+- Resonant filter with 3 modes: lowpass (LP), highpass (HP), bandpass (BP)
+- Filter cutoff (20–20000 Hz, logarithmic) and resonance (0.0–1.0) sliders
+- LFO (low-frequency oscillator) with 3 waveforms: sine, triangle, saw
+- LFO modulation targets: frequency, filter cutoff, amplitude
+- LFO rate (0.1–20 Hz) and depth (0.0–1.0) sliders
+- Filter and LFO enable/disable checkboxes with live toggle
+- `FilterConfig`, `LfoConfig` types in `src/engine/filter.rs`
+- Custom `Mul2` and `Add2` AudioNode implementations for Net graph wiring
+- `resonance_to_q()` mapping function (0.0→0.5, 1.0→20.0)
+- `build_lfo_mod()` helper for LFO modulation graph construction
+- Unit tests for filter types, LFO combinations, and filter+LFO integration
+
+### Changed
+
+- `build_voice_unit()` rewritten to use internal `Net` graph (dynamic node wiring)
+- `build_poly_graph()` extended with filter and LFO parameters
+- Rebuild detection includes filter config and LFO config changes
+- Continuous parameters (cutoff, resonance, LFO rate/depth) via `Shared` (no rebuild)
+- Window size increased to 800×850 to accommodate filter and LFO controls
+
 ## [0.3.0] - 2026-02-14
 
 ### Added

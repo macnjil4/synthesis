@@ -5,6 +5,7 @@ use fundsp::shared::Shared;
 use fundsp::snoop::Snoop;
 
 use crate::engine;
+use crate::engine::filter::{FilterConfig, FilterType, LfoConfig, LfoTarget, LfoWaveform};
 use crate::engine::oscillator::{AdsrParams, Waveform, build_poly_graph};
 use crate::engine::voice::VoiceAllocator;
 use crate::midi::{MidiHandler, NoteEvent};
@@ -29,9 +30,25 @@ pub struct SynthApp {
 
     midi: MidiHandler,
 
+    // Filter
+    filter_cfg: FilterConfig,
+    cutoff: f32,
+    cutoff_shared: Shared,
+    resonance: f32,
+    resonance_shared: Shared,
+
+    // LFO
+    lfo_cfg: LfoConfig,
+    lfo_rate: f32,
+    lfo_rate_shared: Shared,
+    lfo_depth: f32,
+    lfo_depth_shared: Shared,
+
     // Change detection for rebuild
     active_waveform: Option<Waveform>,
     active_adsr: Option<AdsrParams>,
+    active_filter_cfg: Option<FilterConfig>,
+    active_lfo_cfg: Option<LfoConfig>,
 }
 
 impl SynthApp {
@@ -50,8 +67,20 @@ impl SynthApp {
             snoop_left: None,
             snoop_right: None,
             midi: MidiHandler::new(),
+            filter_cfg: FilterConfig::default(),
+            cutoff: 1000.0,
+            cutoff_shared: Shared::new(1000.0),
+            resonance: 0.0,
+            resonance_shared: Shared::new(0.0),
+            lfo_cfg: LfoConfig::default(),
+            lfo_rate: 1.0,
+            lfo_rate_shared: Shared::new(1.0),
+            lfo_depth: 0.0,
+            lfo_depth_shared: Shared::new(0.0),
             active_waveform: None,
             active_adsr: None,
+            active_filter_cfg: None,
+            active_lfo_cfg: None,
         }
     }
 
@@ -67,6 +96,8 @@ impl SynthApp {
         self.playing = false;
         self.active_waveform = None;
         self.active_adsr = None;
+        self.active_filter_cfg = None;
+        self.active_lfo_cfg = None;
     }
 
     fn rebuild_stream(&mut self) {
@@ -79,6 +110,12 @@ impl SynthApp {
             &self.allocator.voices,
             &self.master_amp,
             &self.adsr,
+            &self.filter_cfg,
+            &self.cutoff_shared,
+            &self.resonance_shared,
+            &self.lfo_cfg,
+            &self.lfo_rate_shared,
+            &self.lfo_depth_shared,
         );
 
         let stream = engine::start_stream(&self.device, &self.supported_config, graph);
@@ -87,11 +124,15 @@ impl SynthApp {
         self.snoop_right = Some(snoop_r);
         self.active_waveform = Some(self.waveform);
         self.active_adsr = Some(self.adsr);
+        self.active_filter_cfg = Some(self.filter_cfg);
+        self.active_lfo_cfg = Some(self.lfo_cfg);
     }
 
     fn needs_rebuild(&self) -> bool {
         self.active_waveform != Some(self.waveform)
             || self.active_adsr.as_ref() != Some(&self.adsr)
+            || self.active_filter_cfg.as_ref() != Some(&self.filter_cfg)
+            || self.active_lfo_cfg.as_ref() != Some(&self.lfo_cfg)
     }
 
     fn dispatch_event(&mut self, event: NoteEvent) {
@@ -104,15 +145,19 @@ impl SynthApp {
 
 impl eframe::App for SynthApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Sync master volume
+        // Sync continuous parameters
         self.master_amp.set_value(self.amplitude);
+        self.cutoff_shared.set_value(self.cutoff);
+        self.resonance_shared.set_value(self.resonance);
+        self.lfo_rate_shared.set_value(self.lfo_rate);
+        self.lfo_depth_shared.set_value(self.lfo_depth);
 
         // Process MIDI events
         while let Some(event) = self.midi.try_recv() {
             self.dispatch_event(event);
         }
 
-        // Rebuild stream if waveform or ADSR changed
+        // Rebuild stream if topology-changing parameters changed
         if self.playing && self.needs_rebuild() {
             self.rebuild_stream();
         }
@@ -161,6 +206,99 @@ impl eframe::App for SynthApp {
                     .suffix("s")
                     .text("Release"),
             );
+
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(4.0);
+
+            // Filter section
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.filter_cfg.enabled, "Filter");
+                if self.filter_cfg.enabled {
+                    ui.radio_value(
+                        &mut self.filter_cfg.filter_type,
+                        FilterType::Lowpass,
+                        "LP",
+                    );
+                    ui.radio_value(
+                        &mut self.filter_cfg.filter_type,
+                        FilterType::Highpass,
+                        "HP",
+                    );
+                    ui.radio_value(
+                        &mut self.filter_cfg.filter_type,
+                        FilterType::Bandpass,
+                        "BP",
+                    );
+                }
+            });
+
+            if self.filter_cfg.enabled {
+                ui.add(
+                    egui::Slider::new(&mut self.cutoff, 20.0..=20000.0)
+                        .logarithmic(true)
+                        .suffix(" Hz")
+                        .text("Cutoff"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut self.resonance, 0.0..=1.0).text("Resonance"),
+                );
+            }
+
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(4.0);
+
+            // LFO section
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.lfo_cfg.enabled, "LFO");
+                if self.lfo_cfg.enabled {
+                    ui.radio_value(
+                        &mut self.lfo_cfg.waveform,
+                        LfoWaveform::Sine,
+                        "Sine",
+                    );
+                    ui.radio_value(
+                        &mut self.lfo_cfg.waveform,
+                        LfoWaveform::Triangle,
+                        "Tri",
+                    );
+                    ui.radio_value(
+                        &mut self.lfo_cfg.waveform,
+                        LfoWaveform::Saw,
+                        "Saw",
+                    );
+                }
+            });
+
+            if self.lfo_cfg.enabled {
+                ui.horizontal(|ui| {
+                    ui.label("Target:");
+                    ui.radio_value(
+                        &mut self.lfo_cfg.target,
+                        LfoTarget::Frequency,
+                        "Freq",
+                    );
+                    ui.radio_value(
+                        &mut self.lfo_cfg.target,
+                        LfoTarget::Cutoff,
+                        "Cutoff",
+                    );
+                    ui.radio_value(
+                        &mut self.lfo_cfg.target,
+                        LfoTarget::Amplitude,
+                        "Amp",
+                    );
+                });
+                ui.add(
+                    egui::Slider::new(&mut self.lfo_rate, 0.1..=20.0)
+                        .suffix(" Hz")
+                        .text("Rate"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut self.lfo_depth, 0.0..=1.0).text("Depth"),
+                );
+            }
 
             ui.add_space(4.0);
 
@@ -238,7 +376,7 @@ impl eframe::App for SynthApp {
             ui.add_space(8.0);
             ui.separator();
             ui.add_space(4.0);
-            ui.label("Keyboard (C3–B4)");
+            ui.label("Keyboard (C3\u{2013}B4)");
 
             let keyboard_events = keyboard::draw(ui, 3);
             for event in keyboard_events {

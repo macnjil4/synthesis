@@ -1,5 +1,8 @@
 use fundsp::prelude32::*;
 
+use super::filter::{
+    Add2, FilterConfig, FilterType, LfoConfig, LfoTarget, LfoWaveform, Mul2, resonance_to_q,
+};
 use super::voice::Voice;
 
 /// ADSR envelope parameters.
@@ -91,8 +94,47 @@ pub fn build_oscillator_shared(
     (graph, snoop_left, snoop_right)
 }
 
-/// Build a single polyphonic voice unit with ADSR envelope.
+/// Build an LFO modulation node inside a Net.
+/// Returns the NodeId of a 0-input, 1-output node that outputs values around 1.0.
+/// Formula: dc(1.0) + (lfo_osc × depth)
+fn build_lfo_mod(
+    net: &mut Net,
+    lfo_cfg: &LfoConfig,
+    lfo_rate: &Shared,
+    lfo_depth: &Shared,
+) -> NodeId {
+    // DC offset of 1.0
+    let dc_id = net.push(Box::new(dc(1.0)));
+
+    // LFO oscillator: rate >> oscillator
+    let rate_id = net.push(Box::new(var(lfo_rate) >> follow(0.01)));
+    let osc_id = match lfo_cfg.waveform {
+        LfoWaveform::Sine => net.push(Box::new(sine())),
+        LfoWaveform::Triangle => net.push(Box::new(triangle())),
+        LfoWaveform::Saw => net.push(Box::new(saw())),
+    };
+    net.connect(rate_id, 0, osc_id, 0);
+
+    // Depth control
+    let depth_id = net.push(Box::new(var(lfo_depth) >> follow(0.01)));
+
+    // lfo_osc × depth
+    let mul_id = net.push(Box::new(An(Mul2::new())));
+    net.connect(osc_id, 0, mul_id, 0);
+    net.connect(depth_id, 0, mul_id, 1);
+
+    // dc(1.0) + (lfo × depth)
+    let add_id = net.push(Box::new(An(Add2::new())));
+    net.connect(dc_id, 0, add_id, 0);
+    net.connect(mul_id, 0, add_id, 1);
+
+    add_id
+}
+
+/// Build a single polyphonic voice unit with ADSR envelope, optional filter and LFO.
+/// Uses an internal Net graph for dynamic node wiring.
 /// Returns a 0-input, 2-output (stereo) AudioUnit.
+#[allow(clippy::too_many_arguments)]
 pub fn build_voice_unit(
     waveform: Waveform,
     freq: &Shared,
@@ -100,35 +142,135 @@ pub fn build_voice_unit(
     velocity: &Shared,
     master_amp: &Shared,
     adsr: &AdsrParams,
+    filter_cfg: &FilterConfig,
+    cutoff: &Shared,
+    resonance: &Shared,
+    lfo_cfg: &LfoConfig,
+    lfo_rate: &Shared,
+    lfo_depth: &Shared,
 ) -> Box<dyn AudioUnit> {
-    let freq_control = var(freq) >> follow(0.01);
-    let envelope = var(gate) >> adsr_live(adsr.attack, adsr.decay, adsr.sustain, adsr.release);
-    let vel = var(velocity);
-    let amp_control = var(master_amp) >> follow(0.01);
+    let mut net = Net::new(0, 2);
 
-    match waveform {
-        Waveform::Sine => Box::new(
-            ((freq_control >> sine()) * envelope * vel * amp_control) >> split::<U2>(),
-        ),
-        Waveform::Saw => Box::new(
-            ((freq_control >> saw()) * envelope * vel * amp_control) >> split::<U2>(),
-        ),
-        Waveform::Square => Box::new(
-            ((freq_control >> square()) * envelope * vel * amp_control) >> split::<U2>(),
-        ),
-        Waveform::Triangle => Box::new(
-            ((freq_control >> triangle()) * envelope * vel * amp_control) >> split::<U2>(),
-        ),
+    // Build LFO mod node if enabled
+    let lfo_mod_id = if lfo_cfg.enabled {
+        Some(build_lfo_mod(&mut net, lfo_cfg, lfo_rate, lfo_depth))
+    } else {
+        None
+    };
+
+    // Frequency source
+    let freq_id = net.push(Box::new(var(freq) >> follow(0.01)));
+
+    // Apply LFO to frequency if targeted
+    let osc_input_id = if lfo_cfg.enabled && lfo_cfg.target == LfoTarget::Frequency {
+        let lfo_id = lfo_mod_id.unwrap();
+        let mul_id = net.push(Box::new(An(Mul2::new())));
+        net.connect(freq_id, 0, mul_id, 0);
+        net.connect(lfo_id, 0, mul_id, 1);
+        mul_id
+    } else {
+        freq_id
+    };
+
+    // Oscillator (1 input: frequency, 1 output: audio)
+    let osc_id = match waveform {
+        Waveform::Sine => net.push(Box::new(sine())),
+        Waveform::Saw => net.push(Box::new(saw())),
+        Waveform::Square => net.push(Box::new(square())),
+        Waveform::Triangle => net.push(Box::new(triangle())),
+    };
+    net.connect(osc_input_id, 0, osc_id, 0);
+
+    // ADSR envelope (0 input, 1 output)
+    let env_id = net.push(Box::new(
+        var(gate) >> adsr_live(adsr.attack, adsr.decay, adsr.sustain, adsr.release),
+    ));
+
+    // osc × envelope
+    let env_mul_id = net.push(Box::new(An(Mul2::new())));
+    net.connect(osc_id, 0, env_mul_id, 0);
+    net.connect(env_id, 0, env_mul_id, 1);
+
+    // × velocity
+    let vel_id = net.push(Box::new(var(velocity)));
+    let vel_mul_id = net.push(Box::new(An(Mul2::new())));
+    net.connect(env_mul_id, 0, vel_mul_id, 0);
+    net.connect(vel_id, 0, vel_mul_id, 1);
+
+    let mut signal_id = vel_mul_id;
+
+    // Optional filter (3 inputs: audio, cutoff_hz, Q → 1 output)
+    if filter_cfg.enabled {
+        // Cutoff source
+        let cutoff_id = net.push(Box::new(var(cutoff) >> follow(0.01)));
+
+        // Apply LFO to cutoff if targeted
+        let filter_cutoff_id = if lfo_cfg.enabled && lfo_cfg.target == LfoTarget::Cutoff {
+            let lfo_id = lfo_mod_id.unwrap();
+            let mul_id = net.push(Box::new(An(Mul2::new())));
+            net.connect(cutoff_id, 0, mul_id, 0);
+            net.connect(lfo_id, 0, mul_id, 1);
+            mul_id
+        } else {
+            cutoff_id
+        };
+
+        // Q source from resonance via var_fn
+        let q_id = net.push(Box::new(var_fn(resonance, resonance_to_q)));
+
+        // Filter node
+        let filter_id = match filter_cfg.filter_type {
+            FilterType::Lowpass => net.push(Box::new(lowpass())),
+            FilterType::Highpass => net.push(Box::new(highpass())),
+            FilterType::Bandpass => net.push(Box::new(bandpass())),
+        };
+        net.connect(signal_id, 0, filter_id, 0);
+        net.connect(filter_cutoff_id, 0, filter_id, 1);
+        net.connect(q_id, 0, filter_id, 2);
+
+        signal_id = filter_id;
     }
+
+    // Optional LFO on amplitude
+    if lfo_cfg.enabled && lfo_cfg.target == LfoTarget::Amplitude {
+        let lfo_id = lfo_mod_id.unwrap();
+        let mul_id = net.push(Box::new(An(Mul2::new())));
+        net.connect(signal_id, 0, mul_id, 0);
+        net.connect(lfo_id, 0, mul_id, 1);
+        signal_id = mul_id;
+    }
+
+    // × master amplitude
+    let amp_id = net.push(Box::new(var(master_amp) >> follow(0.01)));
+    let amp_mul_id = net.push(Box::new(An(Mul2::new())));
+    net.connect(signal_id, 0, amp_mul_id, 0);
+    net.connect(amp_id, 0, amp_mul_id, 1);
+
+    // Split to stereo (1 input → 2 outputs)
+    let split_id = net.push(Box::new(split::<U2>()));
+    net.connect(amp_mul_id, 0, split_id, 0);
+
+    // Connect to net outputs
+    net.connect_output(split_id, 0, 0);
+    net.connect_output(split_id, 1, 1);
+
+    Box::new(net)
 }
 
 /// Build a polyphonic audio graph with 8 voices summed together.
 /// Returns the graph plus left/right Snoop frontends for oscilloscope visualization.
+#[allow(clippy::too_many_arguments)]
 pub fn build_poly_graph(
     waveform: Waveform,
     voices: &[Voice],
     master_amp: &Shared,
     adsr: &AdsrParams,
+    filter_cfg: &FilterConfig,
+    cutoff: &Shared,
+    resonance: &Shared,
+    lfo_cfg: &LfoConfig,
+    lfo_rate: &Shared,
+    lfo_depth: &Shared,
 ) -> (Box<dyn AudioUnit>, Snoop, Snoop) {
     let mut net = Net::new(0, 2);
 
@@ -149,6 +291,12 @@ pub fn build_poly_graph(
             &voice.velocity,
             master_amp,
             adsr,
+            filter_cfg,
+            cutoff,
+            resonance,
+            lfo_cfg,
+            lfo_rate,
+            lfo_depth,
         );
         let voice_id = net.push(unit);
         net.connect(voice_id, 0, snoop_l_id, 0);
@@ -168,6 +316,23 @@ mod tests {
         graph.set_sample_rate(SAMPLE_RATE);
         graph.allocate();
         (0..num_samples).map(|_| graph.get_stereo()).collect()
+    }
+
+    fn default_filter_cfg() -> FilterConfig {
+        FilterConfig::default()
+    }
+
+    fn default_lfo_cfg() -> LfoConfig {
+        LfoConfig::default()
+    }
+
+    fn default_shared_params() -> (Shared, Shared, Shared, Shared) {
+        (
+            Shared::new(1000.0), // cutoff
+            Shared::new(0.0),    // resonance
+            Shared::new(1.0),    // lfo_rate
+            Shared::new(0.0),    // lfo_depth
+        )
     }
 
     #[test]
@@ -338,6 +503,9 @@ mod tests {
         let velocity = Shared::new(1.0);
         let master_amp = Shared::new(0.5);
         let adsr = AdsrParams::default();
+        let filter_cfg = default_filter_cfg();
+        let lfo_cfg = default_lfo_cfg();
+        let (cutoff, resonance, lfo_rate, lfo_depth) = default_shared_params();
 
         for waveform in [
             Waveform::Sine,
@@ -345,7 +513,10 @@ mod tests {
             Waveform::Square,
             Waveform::Triangle,
         ] {
-            let unit = build_voice_unit(waveform, &freq, &gate, &velocity, &master_amp, &adsr);
+            let unit = build_voice_unit(
+                waveform, &freq, &gate, &velocity, &master_amp, &adsr,
+                &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
+            );
             assert_eq!(unit.inputs(), 0, "{waveform} voice should have 0 inputs");
             assert_eq!(unit.outputs(), 2, "{waveform} voice should have 2 outputs");
         }
@@ -354,7 +525,7 @@ mod tests {
     #[test]
     fn build_voice_unit_produces_sound_when_gate_triggered() {
         let freq = Shared::new(440.0);
-        let gate = Shared::new(0.0); // start with gate off
+        let gate = Shared::new(0.0);
         let velocity = Shared::new(1.0);
         let master_amp = Shared::new(0.5);
         let adsr = AdsrParams {
@@ -363,8 +534,14 @@ mod tests {
             sustain: 1.0,
             release: 0.01,
         };
+        let filter_cfg = default_filter_cfg();
+        let lfo_cfg = default_lfo_cfg();
+        let (cutoff, resonance, lfo_rate, lfo_depth) = default_shared_params();
 
-        let mut unit = build_voice_unit(Waveform::Sine, &freq, &gate, &velocity, &master_amp, &adsr);
+        let mut unit = build_voice_unit(
+            Waveform::Sine, &freq, &gate, &velocity, &master_amp, &adsr,
+            &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
+        );
         unit.set_sample_rate(SAMPLE_RATE);
         unit.allocate();
 
@@ -373,10 +550,9 @@ mod tests {
             unit.get_stereo();
         }
 
-        // Trigger the gate (simulates note_on)
+        // Trigger the gate
         gate.set_value(1.0);
 
-        // Run enough samples for ADSR attack + filter convergence
         let mut samples = Vec::new();
         for _ in 0..8192 {
             samples.push(unit.get_stereo());
@@ -399,9 +575,14 @@ mod tests {
             sustain: 0.7,
             release: 0.001,
         };
+        let filter_cfg = default_filter_cfg();
+        let lfo_cfg = default_lfo_cfg();
+        let (cutoff, resonance, lfo_rate, lfo_depth) = default_shared_params();
 
-        let unit = build_voice_unit(Waveform::Sine, &freq, &gate, &velocity, &master_amp, &adsr);
-        // With gate=0 and very short release, output should stay silent
+        let unit = build_voice_unit(
+            Waveform::Sine, &freq, &gate, &velocity, &master_amp, &adsr,
+            &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
+        );
         let samples = collect_samples(unit, 4096);
         let tail = &samples[samples.len() - 256..];
         let max_tail = tail
@@ -415,10 +596,186 @@ mod tests {
     }
 
     #[test]
+    fn build_voice_unit_with_filter_returns_stereo() {
+        let freq = Shared::new(440.0);
+        let gate = Shared::new(1.0);
+        let velocity = Shared::new(1.0);
+        let master_amp = Shared::new(0.5);
+        let adsr = AdsrParams::default();
+        let cutoff = Shared::new(1000.0);
+        let resonance = Shared::new(0.0);
+        let lfo_cfg = default_lfo_cfg();
+        let lfo_rate = Shared::new(1.0);
+        let lfo_depth = Shared::new(0.0);
+
+        for filter_type in [FilterType::Lowpass, FilterType::Highpass, FilterType::Bandpass] {
+            let filter_cfg = FilterConfig {
+                filter_type,
+                enabled: true,
+            };
+            let unit = build_voice_unit(
+                Waveform::Saw, &freq, &gate, &velocity, &master_amp, &adsr,
+                &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
+            );
+            assert_eq!(unit.inputs(), 0);
+            assert_eq!(unit.outputs(), 2);
+        }
+    }
+
+    #[test]
+    fn build_voice_unit_with_filter_produces_sound() {
+        let freq = Shared::new(440.0);
+        let gate = Shared::new(0.0);
+        let velocity = Shared::new(1.0);
+        let master_amp = Shared::new(0.5);
+        let adsr = AdsrParams {
+            attack: 0.001,
+            decay: 0.0,
+            sustain: 1.0,
+            release: 0.01,
+        };
+        let filter_cfg = FilterConfig {
+            filter_type: FilterType::Lowpass,
+            enabled: true,
+        };
+        let cutoff = Shared::new(5000.0);
+        let resonance = Shared::new(0.0);
+        let lfo_cfg = default_lfo_cfg();
+        let lfo_rate = Shared::new(1.0);
+        let lfo_depth = Shared::new(0.0);
+
+        let mut unit = build_voice_unit(
+            Waveform::Saw, &freq, &gate, &velocity, &master_amp, &adsr,
+            &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
+        );
+        unit.set_sample_rate(SAMPLE_RATE);
+        unit.allocate();
+        for _ in 0..100 { unit.get_stereo(); }
+        gate.set_value(1.0);
+        let mut samples = Vec::new();
+        for _ in 0..8192 { samples.push(unit.get_stereo()); }
+        let tail = &samples[4096..];
+        let has_nonzero = tail.iter().any(|(l, r)| *l != 0.0 || *r != 0.0);
+        assert!(has_nonzero, "filtered voice should produce sound");
+    }
+
+    #[test]
+    fn build_voice_unit_with_lfo_returns_stereo() {
+        let freq = Shared::new(440.0);
+        let gate = Shared::new(1.0);
+        let velocity = Shared::new(1.0);
+        let master_amp = Shared::new(0.5);
+        let adsr = AdsrParams::default();
+        let filter_cfg = default_filter_cfg();
+        let cutoff = Shared::new(1000.0);
+        let resonance = Shared::new(0.0);
+        let lfo_rate = Shared::new(5.0);
+        let lfo_depth = Shared::new(0.5);
+
+        for target in [LfoTarget::Frequency, LfoTarget::Cutoff, LfoTarget::Amplitude] {
+            for waveform_lfo in [LfoWaveform::Sine, LfoWaveform::Triangle, LfoWaveform::Saw] {
+                let lfo_cfg = LfoConfig {
+                    waveform: waveform_lfo,
+                    target,
+                    enabled: true,
+                };
+                let unit = build_voice_unit(
+                    Waveform::Saw, &freq, &gate, &velocity, &master_amp, &adsr,
+                    &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
+                );
+                assert_eq!(unit.inputs(), 0);
+                assert_eq!(unit.outputs(), 2);
+            }
+        }
+    }
+
+    #[test]
+    fn build_voice_unit_with_lfo_on_freq_produces_sound() {
+        let freq = Shared::new(440.0);
+        let gate = Shared::new(0.0);
+        let velocity = Shared::new(1.0);
+        let master_amp = Shared::new(0.5);
+        let adsr = AdsrParams {
+            attack: 0.001,
+            decay: 0.0,
+            sustain: 1.0,
+            release: 0.01,
+        };
+        let filter_cfg = default_filter_cfg();
+        let cutoff = Shared::new(1000.0);
+        let resonance = Shared::new(0.0);
+        let lfo_cfg = LfoConfig {
+            waveform: LfoWaveform::Sine,
+            target: LfoTarget::Frequency,
+            enabled: true,
+        };
+        let lfo_rate = Shared::new(5.0);
+        let lfo_depth = Shared::new(0.3);
+
+        let mut unit = build_voice_unit(
+            Waveform::Sine, &freq, &gate, &velocity, &master_amp, &adsr,
+            &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
+        );
+        unit.set_sample_rate(SAMPLE_RATE);
+        unit.allocate();
+        for _ in 0..100 { unit.get_stereo(); }
+        gate.set_value(1.0);
+        let mut samples = Vec::new();
+        for _ in 0..8192 { samples.push(unit.get_stereo()); }
+        let tail = &samples[4096..];
+        let has_nonzero = tail.iter().any(|(l, r)| *l != 0.0 || *r != 0.0);
+        assert!(has_nonzero, "voice with LFO on frequency should produce sound");
+    }
+
+    #[test]
+    fn build_voice_unit_with_filter_and_lfo_on_cutoff() {
+        let freq = Shared::new(440.0);
+        let gate = Shared::new(0.0);
+        let velocity = Shared::new(1.0);
+        let master_amp = Shared::new(0.5);
+        let adsr = AdsrParams {
+            attack: 0.001,
+            decay: 0.0,
+            sustain: 1.0,
+            release: 0.01,
+        };
+        let filter_cfg = FilterConfig {
+            filter_type: FilterType::Lowpass,
+            enabled: true,
+        };
+        let cutoff = Shared::new(2000.0);
+        let resonance = Shared::new(0.3);
+        let lfo_cfg = LfoConfig {
+            waveform: LfoWaveform::Sine,
+            target: LfoTarget::Cutoff,
+            enabled: true,
+        };
+        let lfo_rate = Shared::new(2.0);
+        let lfo_depth = Shared::new(0.5);
+
+        let mut unit = build_voice_unit(
+            Waveform::Saw, &freq, &gate, &velocity, &master_amp, &adsr,
+            &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
+        );
+        unit.set_sample_rate(SAMPLE_RATE);
+        unit.allocate();
+        for _ in 0..100 { unit.get_stereo(); }
+        gate.set_value(1.0);
+        let mut samples = Vec::new();
+        for _ in 0..8192 { samples.push(unit.get_stereo()); }
+        let tail = &samples[4096..];
+        let has_nonzero = tail.iter().any(|(l, r)| *l != 0.0 || *r != 0.0);
+        assert!(has_nonzero, "voice with filter + LFO on cutoff should produce sound");
+    }
+
+    #[test]
     fn build_poly_graph_returns_stereo() {
         let voices: Vec<Voice> = (0..8).map(|_| Voice::new()).collect();
         let master_amp = Shared::new(0.5);
         let adsr = AdsrParams::default();
+        let filter_cfg = default_filter_cfg();
+        let lfo_cfg = default_lfo_cfg();
+        let (cutoff, resonance, lfo_rate, lfo_depth) = default_shared_params();
 
         for waveform in [
             Waveform::Sine,
@@ -426,7 +783,10 @@ mod tests {
             Waveform::Square,
             Waveform::Triangle,
         ] {
-            let (graph, _, _) = build_poly_graph(waveform, &voices, &master_amp, &adsr);
+            let (graph, _, _) = build_poly_graph(
+                waveform, &voices, &master_amp, &adsr,
+                &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
+            );
             assert_eq!(graph.inputs(), 0, "{waveform} poly should have 0 inputs");
             assert_eq!(graph.outputs(), 2, "{waveform} poly should have 2 outputs");
         }
@@ -435,7 +795,6 @@ mod tests {
     #[test]
     fn build_poly_graph_snoop_receives_data() {
         let voices: Vec<Voice> = (0..8).map(|_| Voice::new()).collect();
-        // Activate one voice
         voices[0].freq.set_value(440.0);
         voices[0].gate.set_value(1.0);
         voices[0].velocity.set_value(1.0);
@@ -447,9 +806,14 @@ mod tests {
             sustain: 1.0,
             release: 0.01,
         };
+        let filter_cfg = default_filter_cfg();
+        let lfo_cfg = default_lfo_cfg();
+        let (cutoff, resonance, lfo_rate, lfo_depth) = default_shared_params();
 
-        let (graph, mut snoop_l, mut snoop_r) =
-            build_poly_graph(Waveform::Sine, &voices, &master_amp, &adsr);
+        let (graph, mut snoop_l, mut snoop_r) = build_poly_graph(
+            Waveform::Sine, &voices, &master_amp, &adsr,
+            &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
+        );
         let _samples = collect_samples(graph, 2048);
 
         snoop_l.update();

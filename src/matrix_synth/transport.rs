@@ -2,11 +2,11 @@ use eframe::egui;
 use eframe::egui::Stroke;
 
 use super::history::History;
-use super::state::{ChannelMode, TenoriState};
+use super::state::{ChannelMode, MatrixState};
 use super::theme::Theme;
 use super::widgets;
 
-pub fn draw(ui: &mut egui::Ui, state: &mut TenoriState, history: &mut History) {
+pub fn draw(ui: &mut egui::Ui, state: &mut MatrixState, history: &mut History) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 12.0;
 

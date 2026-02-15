@@ -3,7 +3,7 @@ mod gui;
 mod midi;
 mod preset;
 mod synth_ui;
-mod tenori_synth;
+mod matrix_synth;
 
 use clap::Parser;
 use engine::oscillator::Waveform;
@@ -31,15 +31,15 @@ struct Cli {
     #[arg(long)]
     gui: bool,
 
-    /// Launch the Tenori-on sequencer interface
+    /// Launch the Matrix sequencer interface
     #[arg(long)]
-    tenori: bool,
+    matrix: bool,
 }
 
 fn main() {
     let cli = Cli::parse();
-    if cli.tenori {
-        gui::run_tenori();
+    if cli.matrix {
+        gui::run_matrix();
     } else if cli.gui {
         gui::run();
     } else {

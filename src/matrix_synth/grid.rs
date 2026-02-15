@@ -2,12 +2,12 @@ use eframe::egui;
 use eframe::egui::{Color32, Stroke};
 
 use super::history::History;
-use super::state::{ChannelMode, DrawMode, TenoriState, COLS, ROWS};
+use super::state::{ChannelMode, DrawMode, MatrixState, COLS, ROWS};
 use super::theme::Theme;
 use super::widgets;
 
 #[allow(clippy::needless_range_loop)]
-pub fn draw(ui: &mut egui::Ui, state: &mut TenoriState, history: &mut History) {
+pub fn draw(ui: &mut egui::Ui, state: &mut MatrixState, history: &mut History) {
     let cell = Theme::CELL_SIZE;
     let gap = Theme::CELL_GAP;
     let step = cell + gap;

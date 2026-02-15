@@ -1,6 +1,6 @@
 use eframe::egui;
 
-use crate::tenori_synth::theme::Theme;
+use crate::matrix_synth::theme::Theme;
 
 pub fn synth_panel(ui: &mut egui::Ui, title: &str, add_contents: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::new()

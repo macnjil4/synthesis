@@ -1,6 +1,6 @@
 mod app;
 pub mod oscilloscope;
-mod tenori_app;
+mod matrix_app;
 
 pub fn run() {
     let options = eframe::NativeOptions {
@@ -16,16 +16,16 @@ pub fn run() {
     .expect("failed to run eframe");
 }
 
-pub fn run_tenori() {
+pub fn run_matrix() {
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default().with_inner_size([1100.0, 750.0]),
         ..Default::default()
     };
 
     eframe::run_native(
-        "Tenori-Synth",
+        "Matrix-Synth",
         options,
-        Box::new(|cc| Ok(Box::new(tenori_app::TenoriApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(matrix_app::MatrixApp::new(cc)))),
     )
     .expect("failed to run eframe");
 }

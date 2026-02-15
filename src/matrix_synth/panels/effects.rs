@@ -1,10 +1,10 @@
 use eframe::egui;
 
-use crate::tenori_synth::state::TenoriState;
-use crate::tenori_synth::widgets::hslider::hslider;
-use crate::tenori_synth::widgets::panel::synth_panel;
+use crate::matrix_synth::state::MatrixState;
+use crate::matrix_synth::widgets::hslider::hslider;
+use crate::matrix_synth::widgets::panel::synth_panel;
 
-pub fn draw(ui: &mut egui::Ui, state: &mut TenoriState) {
+pub fn draw(ui: &mut egui::Ui, state: &mut MatrixState) {
     synth_panel(ui, "Effects", |ui| {
         hslider(ui, "Reverb", &mut state.fx_reverb, 0.0, 100.0);
         hslider(ui, "Delay", &mut state.fx_delay, 0.0, 100.0);

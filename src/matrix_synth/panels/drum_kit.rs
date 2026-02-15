@@ -1,11 +1,11 @@
 use eframe::egui;
 
-use crate::tenori_synth::state::{DrumPreset, TenoriState};
-use crate::tenori_synth::widgets::knob::knob;
-use crate::tenori_synth::widgets::panel::synth_panel;
-use crate::tenori_synth::widgets::select_buttons::select_buttons;
+use crate::matrix_synth::state::{DrumPreset, MatrixState};
+use crate::matrix_synth::widgets::knob::knob;
+use crate::matrix_synth::widgets::panel::synth_panel;
+use crate::matrix_synth::widgets::select_buttons::select_buttons;
 
-pub fn draw(ui: &mut egui::Ui, state: &mut TenoriState) {
+pub fn draw(ui: &mut egui::Ui, state: &mut MatrixState) {
     synth_panel(ui, "Drum Kit", |ui| {
         let options: Vec<(DrumPreset, &str)> =
             DrumPreset::ALL.iter().map(|p| (*p, p.label())).collect();

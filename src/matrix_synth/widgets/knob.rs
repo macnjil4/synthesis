@@ -1,7 +1,7 @@
 use eframe::egui;
 use eframe::egui::Stroke;
 
-use crate::tenori_synth::theme::Theme;
+use crate::matrix_synth::theme::Theme;
 
 #[allow(dead_code)]
 pub struct KnobResponse {

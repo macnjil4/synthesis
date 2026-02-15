@@ -11,23 +11,23 @@ pub mod widgets;
 
 use eframe::egui;
 
-pub use state::TenoriState;
+pub use state::MatrixState;
 
 use history::History;
 use state::{ChannelMode, COLS};
 use theme::Theme;
 
 #[allow(dead_code)]
-pub struct TenoriSynth {
-    state: TenoriState,
+pub struct MatrixSynth {
+    state: MatrixState,
     history: History,
     prev_play_col: i32,
 }
 
-impl TenoriSynth {
+impl MatrixSynth {
     pub fn new() -> Self {
         Self {
-            state: TenoriState::default(),
+            state: MatrixState::default(),
             history: History::new(),
             prev_play_col: -1,
         }
@@ -142,12 +142,12 @@ impl TenoriSynth {
     // ── Public API ──
 
     #[allow(dead_code)]
-    pub fn state(&self) -> &TenoriState {
+    pub fn state(&self) -> &MatrixState {
         &self.state
     }
 
     #[allow(dead_code)]
-    pub fn state_mut(&mut self) -> &mut TenoriState {
+    pub fn state_mut(&mut self) -> &mut MatrixState {
         &mut self.state
     }
 

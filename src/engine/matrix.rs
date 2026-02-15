@@ -8,11 +8,11 @@ use super::filter::Add2;
 use super::oscillator::build_voice_unit;
 use super::voice::{Voice, VoiceConfig, VoiceShared};
 
-/// Build a combined Tenori-on graph with 8 lead + 8 drum + 8 bass voices,
+/// Build a combined Matrix graph with 8 lead + 8 drum + 8 bass voices,
 /// summed together through a single shared effects chain.
 /// All voice sets play simultaneously; mode switching only affects the UI.
 #[allow(clippy::too_many_arguments)]
-pub fn build_tenori_graph(
+pub fn build_matrix_graph(
     lead_voices: &[Voice],
     lead_configs: &[VoiceConfig],
     lead_shared: &[VoiceShared],
@@ -177,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn build_tenori_graph_returns_stereo() {
+    fn build_matrix_graph_returns_stereo() {
         let lead_voices: Vec<Voice> = (0..8).map(|_| Voice::new()).collect();
         let lead_configs: Vec<VoiceConfig> = (0..8).map(|_| VoiceConfig::default()).collect();
         let lead_shared: Vec<VoiceShared> =
@@ -198,7 +198,7 @@ mod tests {
         let rm = Shared::new(0.0);
         let cm = Shared::new(0.0);
 
-        let (graph, _, _) = build_tenori_graph(
+        let (graph, _, _) = build_matrix_graph(
             &lead_voices, &lead_configs, &lead_shared,
             &drum_voices, &drum_shared, &drum_buffers,
             &bass_voices, &bass_configs, &bass_shared,
@@ -209,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    fn build_tenori_graph_lead_and_drum_both_contribute() {
+    fn build_matrix_graph_lead_and_drum_both_contribute() {
         let lead_voices: Vec<Voice> = (0..8).map(|_| Voice::new()).collect();
         let lead_configs: Vec<VoiceConfig> = (0..8).map(|_| VoiceConfig::default()).collect();
         let lead_shared: Vec<VoiceShared> =
@@ -230,7 +230,7 @@ mod tests {
         let rm = Shared::new(0.0);
         let cm = Shared::new(0.0);
 
-        let (mut graph, _, _) = build_tenori_graph(
+        let (mut graph, _, _) = build_matrix_graph(
             &lead_voices, &lead_configs, &lead_shared,
             &drum_voices, &drum_shared, &drum_buffers,
             &bass_voices, &bass_configs, &bass_shared,

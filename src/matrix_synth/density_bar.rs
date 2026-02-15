@@ -1,10 +1,10 @@
 use eframe::egui;
 use eframe::egui::Stroke;
 
-use super::state::{ChannelMode, TenoriState, COLS};
+use super::state::{ChannelMode, MatrixState, COLS};
 use super::theme::Theme;
 
-pub fn draw(ui: &mut egui::Ui, state: &TenoriState) {
+pub fn draw(ui: &mut egui::Ui, state: &MatrixState) {
     ui.horizontal(|ui| {
         ui.add_space(Theme::NOTE_LABEL_WIDTH);
 

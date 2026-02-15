@@ -1,9 +1,9 @@
-# Tenori-Synth — Spécification complète d'implémentation
+# Matrix-Synth — Spécification complète d'implémentation
 
 > **Destinataire** : Claude Code (agent IA)
 > **Langage** : Rust
 > **Framework UI** : egui (via eframe)
-> **Objectif** : Ajouter un module `tenori_synth` dans un projet Rust/egui existant. Ce module implémente une interface de type Tenori-on (séquenceur matriciel 16×16). **Aucune génération de son** — uniquement l'IHM. L'état est exposé pour branchement futur sur un moteur audio.
+> **Objectif** : Ajouter un module `matrix_synth` dans un projet Rust/egui existant. Ce module implémente une interface de type Matrix (séquenceur matriciel 16×16). **Aucune génération de son** — uniquement l'IHM. L'état est exposé pour branchement futur sur un moteur audio.
 
 ---
 
@@ -33,9 +33,9 @@
 
 ## 1. Règles d'intégration
 
-- **Ne JAMAIS modifier les fichiers existants** sauf pour ajouter `mod tenori_synth;` et l'appel `tenori.show(ctx, ui);` dans le code appelant.
+- **Ne JAMAIS modifier les fichiers existants** sauf pour ajouter `mod matrix_synth;` et l'appel `matrix.show(ctx, ui);` dans le code appelant.
 - **Ne pas casser les dépendances** — vérifier la version d'egui/eframe dans `Cargo.toml` existant et s'adapter.
-- **Tout le code nouveau** va dans `src/tenori_synth/`.
+- **Tout le code nouveau** va dans `src/matrix_synth/`.
 - **Pas de dépendances tierces supplémentaires** — uniquement egui/eframe et la std.
 - **Compiler sans warnings** — `#![deny(warnings)]` compatible.
 - **Pas de `unsafe`**.
@@ -56,9 +56,9 @@ Créer l'arborescence suivante :
 
 ```
 src/
-└── tenori_synth/
-    ├── mod.rs                  # Struct TenoriSynth, impl show(), API publique
-    ├── state.rs                # TenoriState, enums, Default, constantes
+└── matrix_synth/
+    ├── mod.rs                  # Struct MatrixSynth, impl show(), API publique
+    ├── state.rs                # MatrixState, enums, Default, constantes
     ├── theme.rs                # Struct Theme, toutes les couleurs et dimensions
     ├── grid.rs                 # Rendu et interaction de la matrice 16×16
     ├── transport.rs            # Barre play/pause/clear/BPM/swing
@@ -86,8 +86,8 @@ src/
 Ajouter dans le fichier `src/main.rs` (ou `src/lib.rs`, ou là où se trouve la boucle egui) :
 
 ```rust
-mod tenori_synth;
-use tenori_synth::TenoriSynth;
+mod matrix_synth;
+use matrix_synth::MatrixSynth;
 ```
 
 ---
@@ -268,7 +268,7 @@ impl Scale {
 // ── État principal ──
 
 #[derive(Clone)]
-pub struct TenoriState {
+pub struct MatrixState {
     // Matrice
     pub grid: [[bool; COLS]; ROWS],
 
@@ -312,7 +312,7 @@ pub struct TenoriState {
     pub fx_chorus: f32,
 }
 
-impl Default for TenoriState {
+impl Default for MatrixState {
     fn default() -> Self {
         Self {
             grid: [[false; COLS]; ROWS],
@@ -343,7 +343,7 @@ impl Default for TenoriState {
     }
 }
 
-impl TenoriState {
+impl MatrixState {
     pub fn clear_grid(&mut self) {
         self.grid = [[false; COLS]; ROWS];
     }
@@ -409,21 +409,21 @@ mod history;
 mod widgets;
 mod panels;
 
-pub use state::TenoriState;
+pub use state::MatrixState;
 
 use state::*;
 use theme::Theme;
 use history::History;
 
-pub struct TenoriSynth {
-    state: TenoriState,
+pub struct MatrixSynth {
+    state: MatrixState,
     history: History,
 }
 
-impl TenoriSynth {
+impl MatrixSynth {
     pub fn new() -> Self {
         Self {
-            state: TenoriState::default(),
+            state: MatrixState::default(),
             history: History::new(),
         }
     }
@@ -531,8 +531,8 @@ impl TenoriSynth {
 
     // ── API publique ──
 
-    pub fn state(&self) -> &TenoriState { &self.state }
-    pub fn state_mut(&mut self) -> &mut TenoriState { &mut self.state }
+    pub fn state(&self) -> &MatrixState { &self.state }
+    pub fn state_mut(&mut self) -> &mut MatrixState { &mut self.state }
     pub fn active_note_names(&self) -> Vec<&'static str> { self.state.active_note_names() }
     pub fn active_rows(&self) -> Vec<usize> { self.state.active_rows() }
     pub fn is_playing(&self) -> bool { self.state.is_playing }
@@ -782,7 +782,7 @@ Hauteur  = COL_HEADER_HEIGHT + ROWS * (CELL_SIZE + CELL_GAP)
 ### Algorithme de rendu
 
 ```rust
-pub fn draw(ui: &mut egui::Ui, state: &mut TenoriState, history: &mut History) {
+pub fn draw(ui: &mut egui::Ui, state: &mut MatrixState, history: &mut History) {
     let cell = Theme::CELL_SIZE;
     let gap = Theme::CELL_GAP;
     let step = cell + gap;
@@ -999,7 +999,7 @@ Action : `state.clear_grid()` + `history.push(grid_before)`.
 - Trait vertical 1px hauteur 28px couleur `BORDER` entre les groupes.
 
 ```rust
-pub fn draw(ui: &mut egui::Ui, state: &mut TenoriState, history: &mut History) {
+pub fn draw(ui: &mut egui::Ui, state: &mut MatrixState, history: &mut History) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 12.0;
 
@@ -1044,7 +1044,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut TenoriState, history: &mut History) {
 16 petites barres horizontales sous la grille, alignées avec les colonnes.
 
 ```rust
-pub fn draw(ui: &mut egui::Ui, state: &TenoriState) {
+pub fn draw(ui: &mut egui::Ui, state: &MatrixState) {
     ui.horizontal(|ui| {
         ui.add_space(Theme::NOTE_LABEL_WIDTH); // aligner avec la grille
 
@@ -1091,7 +1091,7 @@ pub fn draw(ui: &mut egui::Ui, state: &TenoriState) {
 **Fichier : `header.rs`**
 
 ```rust
-pub fn draw(ui: &mut egui::Ui, state: &TenoriState) {
+pub fn draw(ui: &mut egui::Ui, state: &MatrixState) {
     ui.horizontal(|ui| {
         // LED
         let (led_rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
@@ -1107,7 +1107,7 @@ pub fn draw(ui: &mut egui::Ui, state: &TenoriState) {
 
         // Titre
         ui.label(
-            egui::RichText::new("TENORI-SYNTH")
+            egui::RichText::new("MATRIX-SYNTH")
                 .size(20.0)
                 .strong()
                 .color(Theme::ACCENT_LIGHT)
@@ -1153,7 +1153,7 @@ Chaque panel utilise `widgets::panel::synth_panel(ui, title, |ui| { ... })`.
 ### `panels/oscillator.rs`
 
 ```rust
-pub fn draw(ui: &mut egui::Ui, state: &mut TenoriState) {
+pub fn draw(ui: &mut egui::Ui, state: &mut MatrixState) {
     synth_panel(ui, "Oscillator", |ui| {
         let options: Vec<(Waveform, &str)> = Waveform::ALL.iter().map(|w| (*w, w.label())).collect();
         select_buttons(ui, &mut state.osc_waveform, &options);
@@ -1169,7 +1169,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut TenoriState) {
 ### `panels/envelope.rs`
 
 ```rust
-pub fn draw(ui: &mut egui::Ui, state: &mut TenoriState) {
+pub fn draw(ui: &mut egui::Ui, state: &mut MatrixState) {
     synth_panel(ui, "Envelope", |ui| {
         ui.horizontal(|ui| {
             knob(ui, "A", &mut state.env_attack,  0.0, 100.0, 10.0, "", 36.0);
@@ -1184,7 +1184,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut TenoriState) {
 ### `panels/filter.rs`
 
 ```rust
-pub fn draw(ui: &mut egui::Ui, state: &mut TenoriState) {
+pub fn draw(ui: &mut egui::Ui, state: &mut MatrixState) {
     synth_panel(ui, "Filter", |ui| {
         let options: Vec<(FilterType, &str)> = FilterType::ALL.iter().map(|f| (*f, f.label())).collect();
         select_buttons(ui, &mut state.filter_type, &options);
@@ -1198,7 +1198,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut TenoriState) {
 ### `panels/lfo.rs`
 
 ```rust
-pub fn draw(ui: &mut egui::Ui, state: &mut TenoriState) {
+pub fn draw(ui: &mut egui::Ui, state: &mut MatrixState) {
     synth_panel(ui, "LFO", |ui| {
         let options: Vec<(LfoDest, &str)> = LfoDest::ALL.iter().map(|d| (*d, d.label())).collect();
         select_buttons(ui, &mut state.lfo_dest, &options);
@@ -1214,7 +1214,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut TenoriState) {
 ### `panels/effects.rs`
 
 ```rust
-pub fn draw(ui: &mut egui::Ui, state: &mut TenoriState) {
+pub fn draw(ui: &mut egui::Ui, state: &mut MatrixState) {
     synth_panel(ui, "Effects", |ui| {
         hslider(ui, "Reverb", &mut state.fx_reverb, 0.0, 100.0);
         hslider(ui, "Delay", &mut state.fx_delay, 0.0, 100.0);
@@ -1226,7 +1226,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut TenoriState) {
 ### `panels/scale.rs`
 
 ```rust
-pub fn draw(ui: &mut egui::Ui, state: &mut TenoriState) {
+pub fn draw(ui: &mut egui::Ui, state: &mut MatrixState) {
     synth_panel(ui, "Scale", |ui| {
         let options: Vec<(Scale, &str)> = Scale::ALL.iter().map(|s| (*s, s.label())).collect();
         select_buttons(ui, &mut state.scale, &options);
@@ -1237,7 +1237,7 @@ pub fn draw(ui: &mut egui::Ui, state: &mut TenoriState) {
 ### `panels/draw_mode.rs`
 
 ```rust
-pub fn draw(ui: &mut egui::Ui, state: &mut TenoriState) {
+pub fn draw(ui: &mut egui::Ui, state: &mut MatrixState) {
     synth_panel(ui, "Draw Mode", |ui| {
         let options: Vec<(DrawMode, &str)> = DrawMode::ALL.iter().map(|d| (*d, d.label())).collect();
         select_buttons(ui, &mut state.draw_mode, &options);
@@ -1256,7 +1256,7 @@ use egui::Key;
 use super::state::*;
 use super::history::History;
 
-pub fn handle(ui: &mut egui::Ui, state: &mut TenoriState, history: &mut History) {
+pub fn handle(ui: &mut egui::Ui, state: &mut MatrixState, history: &mut History) {
     let modifiers = ui.input(|i| i.modifiers);
 
     // ── Transport ──
@@ -1435,12 +1435,12 @@ impl History {
 Le module expose :
 
 ```rust
-// src/tenori_synth/mod.rs
+// src/matrix_synth/mod.rs
 
 /// Interface publique
-pub struct TenoriSynth { ... }
+pub struct MatrixSynth { ... }
 
-impl TenoriSynth {
+impl MatrixSynth {
     /// Créer une nouvelle instance
     pub fn new() -> Self;
 
@@ -1448,10 +1448,10 @@ impl TenoriSynth {
     pub fn show(&mut self, ctx: &egui::Context, ui: &mut egui::Ui);
 
     /// État en lecture seule (pour connecter un moteur audio)
-    pub fn state(&self) -> &TenoriState;
+    pub fn state(&self) -> &MatrixState;
 
     /// État mutable (pour charger un preset, etc.)
-    pub fn state_mut(&mut self) -> &mut TenoriState;
+    pub fn state_mut(&mut self) -> &mut MatrixState;
 
     /// Notes actives au step courant (noms, ex: ["C5", "A4"])
     pub fn active_note_names(&self) -> Vec<&'static str>;
@@ -1472,18 +1472,18 @@ impl TenoriSynth {
 ```rust
 // src/main.rs ou src/app.rs
 
-mod tenori_synth;
-use tenori_synth::TenoriSynth;
+mod matrix_synth;
+use matrix_synth::MatrixSynth;
 
 struct MyApp {
-    tenori: TenoriSynth,
+    matrix: MatrixSynth,
     // ... autres champs existants
 }
 
 impl MyApp {
     fn new() -> Self {
         Self {
-            tenori: TenoriSynth::new(),
+            matrix: MatrixSynth::new(),
             // ...
         }
     }
@@ -1492,7 +1492,7 @@ impl MyApp {
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.tenori.show(ctx, ui);
+            self.matrix.show(ctx, ui);
         });
     }
 }

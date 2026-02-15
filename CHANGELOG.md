@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `DrumPreset` enum: LinnDrum / TR-505 / CR-78 (replaces Standard/Rock/Jazz/Dance/Electronic/Latin)
 - Drum voice graph uses `SamplePlayer` instead of noise+sine→filter→ADSR synthesis
-- `build_tenori_graph()` accepts `drum_buffers: &Arc<Vec<Vec<f32>>>` for sample data
+- `build_matrix_graph()` accepts `drum_buffers: &Arc<Vec<Vec<f32>>>` for sample data
 - Drum preset change triggers sample reload + graph rebuild (new buffers)
 - Tune knob now controls pitch_ratio (0.5x–2.0x playback speed) instead of frequency offset
 - Drum Kit panel dynamically shows 3 kit buttons instead of 6
@@ -71,7 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Mode cycle (M key): Lead → Drummer → Bass → Lead
 - `ChannelMode::ALL` now contains 3 modes
-- `build_tenori_graph()` accepts bass voices/configs/shared parameters
+- `build_matrix_graph()` accepts bass voices/configs/shared parameters
 - Header badge shows "BASS" in pink for Bass mode
 - Density bar uses pink color in Bass mode
 - Version bumped to 0.11.0
@@ -81,7 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Simultaneous Lead + Drum playback**: both grids play at the same time through a single combined audio graph (8 lead + 8 drum voices summed together with shared effects chain)
-- Combined graph builder `build_tenori_graph()` in `src/engine/tenori.rs`: 16 voice units in one Net graph, single effects chain
+- Combined graph builder `build_matrix_graph()` in `src/engine/matrix.rs`: 16 voice units in one Net graph, single effects chain
 - **Ghost overlay**: when editing one mode, the other mode's active cells are visible as semi-transparent background (yellow for Lead, purple for Drum)
 - **Lead mode yellow color scheme**: Lead cells are now gold/yellow instead of purple, giving clear visual distinction between modes
 - Ghost overlay colors in theme: `GHOST_LEAD` (transparent yellow), `GHOST_DRUM` (transparent purple)
@@ -92,7 +92,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Mode switching no longer triggers audio graph rebuild (both graphs always active)
 - `handle_step_change()` triggers both lead notes and drum hits simultaneously on every step
-- `sync_voice_configs_from_tenori()` always syncs lead parameters regardless of current edit mode
+- `sync_voice_configs_from_matrix()` always syncs lead parameters regardless of current edit mode
 - Grid glow pass and cell rendering use mode-aware colors (Lead = yellow, Drum = purple)
 - Density bar fill color adapts to current mode
 - Header badge uses yellow accent for Lead mode
@@ -100,13 +100,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- `active_mode` field from `TenoriApp` (no longer needed — mode only affects UI, not audio)
+- `active_mode` field from `MatrixApp` (no longer needed — mode only affects UI, not audio)
 
 ## [0.9.0] - 2026-02-15
 
 ### Added
 
-- **Drummer mode** for Tenori-on sequencer: each row is a percussion instrument instead of a pitched note
+- **Drummer mode** for Matrix sequencer: each row is a percussion instrument instead of a pitched note
 - 16-instrument drum kit: Crash, Ride, Open HH, Closed HH, Clap, Rimshot, Snare, Tom Hi, Tom Mid, Tom Low, Conga Hi, Conga Lo, Cowbell, Claves, Kick, Kick Hard
 - Fixed-topology drum voice engine (`src/engine/drum.rs`): dual-source synthesis (noise + sine) mixed via `Shared` atomics — zero graph rebuilds between hits
 - `build_drum_voice_unit()` and `build_drum_poly_graph()` for 8-voice drum polyphony
@@ -114,13 +114,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Independent grids per mode: Lead and Drummer grids are preserved when switching
 - Drum Kit sidebar panel with global modifiers: Tune (pitch offset), Decay, Color (filter cutoff multiplier)
 - Drum accent colors (amber/orange) for Drummer mode header badge
-- `ChannelMode` enum (Lead, Drummer) in `TenoriState` with `active_grid()` / `active_grid_mut()` abstraction
+- `ChannelMode` enum (Lead, Drummer) in `MatrixState` with `active_grid()` / `active_grid_mut()` abstraction
 - 15 new unit tests: 7 in `engine/drum.rs` (kit entries, voice build, sound production, param changes), 8 in `state.rs` (mode switching, grid independence, label changes)
 
 ### Changed
 
 - Grid, transport, header, shortcuts, and sidebar conditionally adapt to active mode
-- `TenoriApp` bridge supports dual audio graphs (Lead: `build_poly_graph`, Drummer: `build_drum_poly_graph`)
+- `MatrixApp` bridge supports dual audio graphs (Lead: `build_poly_graph`, Drummer: `build_drum_poly_graph`)
 - Mode switch triggers one-time graph rebuild; effects chain shared between modes
 - Undo/redo and draw modes operate on the active mode's grid
 - Footer shortcuts updated with M (mode toggle)
@@ -130,16 +130,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Tenori-on sequencer mode** (`--tenori`): 16x16 matrix sequencer inspired by Yamaha Tenori-on
-- `TenoriSynth` UI module (`src/tenori_synth/`) with 19 files: state, theme, grid, transport, history, header, density bar, shortcuts, 4 widgets, 7 panels, mod.rs
-- `TenoriApp` bridge (`src/gui/tenori_app.rs`): maps UI state to audio engine parameters, triggers notes on playhead advancement
+- **Matrix sequencer mode** (`--matrix`): 16x16 matrix sequencer inspired by Yamaha Matrix
+- `MatrixSynth` UI module (`src/matrix_synth/`) with 19 files: state, theme, grid, transport, history, header, density bar, shortcuts, 4 widgets, 7 panels, mod.rs
+- `MatrixApp` bridge (`src/gui/matrix_app.rs`): maps UI state to audio engine parameters, triggers notes on playhead advancement
 - 16x16 grid matrix: rows = notes (C5 to A3), columns = time steps, with click/drag interaction
 - 3 draw modes: Toggle, Draw, Erase (keyboard shortcuts D/E/T)
 - Playhead with left-to-right advancement, triggering active cells as notes
 - Transport controls: play/pause, BPM slider (40–240), swing knob
 - Scale selector: Chromatic, Major, Minor, Pentatonic with MIDI note mapping
 - Sidebar synth panels: oscillator (waveform, pitch, detune), ADSR envelope, resonant filter (LP/HP/BP), LFO (pitch/filter/amp modulation), effects (reverb, delay, chorus)
-- Custom Tenori-on widgets: rotary knob (configurable size, drag, double-click reset), horizontal slider, toggle button group, panel wrapper
+- Custom Matrix widgets: rotary knob (configurable size, drag, double-click reset), horizontal slider, toggle button group, panel wrapper
 - Density bar: per-column note density visualization aligned with grid
 - Header with LED status indicator, title, version, active note badges
 - Undo/redo system: 20-entry circular history (Ctrl+Z / Ctrl+Shift+Z)
@@ -148,11 +148,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 8-voice polyphony with voice stealing for sequenced notes
 - Playhead column background highlight and cell glow effects (hit, on, hover states)
 - 23 new unit tests: 18 in `state.rs` (state operations, enums, scale mapping, MIDI) + 5 in `history.rs` (undo/redo, limits)
-- `run_tenori()` entry point in `gui/mod.rs` (1100x750 window)
+- `run_matrix()` entry point in `gui/mod.rs` (1100x750 window)
 
 ### Changed
 
-- `main.rs`: added `--tenori` CLI flag alongside existing `--gui`
+- `main.rs`: added `--matrix` CLI flag alongside existing `--gui`
 - Version bumped to 0.8.0
 
 ## [0.7.0] - 2026-02-15

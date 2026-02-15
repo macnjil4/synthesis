@@ -231,7 +231,7 @@ impl Scale {
 // ── Main state ──
 
 #[derive(Clone)]
-pub struct TenoriState {
+pub struct MatrixState {
     // Grid matrices (one per mode, preserved when switching)
     pub grid: [[bool; COLS]; ROWS],
     pub drum_grid: [[bool; COLS]; ROWS],
@@ -297,7 +297,7 @@ pub struct TenoriState {
     pub bass_row_volume: [f32; ROWS],
 }
 
-impl Default for TenoriState {
+impl Default for MatrixState {
     fn default() -> Self {
         Self {
             grid: [[false; COLS]; ROWS],
@@ -342,7 +342,7 @@ impl Default for TenoriState {
     }
 }
 
-impl TenoriState {
+impl MatrixState {
     /// Return the active grid based on current mode.
     pub fn active_grid(&self) -> &[[bool; COLS]; ROWS] {
         match self.mode {
@@ -480,7 +480,7 @@ mod tests {
 
     #[test]
     fn default_state() {
-        let s = TenoriState::default();
+        let s = MatrixState::default();
         assert!(!s.is_playing);
         assert_eq!(s.play_col, -1);
         assert_eq!(s.bpm, 120.0);
@@ -491,7 +491,7 @@ mod tests {
 
     #[test]
     fn grid_starts_empty() {
-        let s = TenoriState::default();
+        let s = MatrixState::default();
         for row in 0..ROWS {
             for col in 0..COLS {
                 assert!(!s.grid[row][col]);
@@ -501,7 +501,7 @@ mod tests {
 
     #[test]
     fn toggle_play_starts_and_stops() {
-        let mut s = TenoriState::default();
+        let mut s = MatrixState::default();
         s.toggle_play();
         assert!(s.is_playing);
         assert_eq!(s.play_col, 0);
@@ -513,7 +513,7 @@ mod tests {
 
     #[test]
     fn clear_grid_clears_all() {
-        let mut s = TenoriState::default();
+        let mut s = MatrixState::default();
         s.grid[0][0] = true;
         s.grid[5][10] = true;
         s.grid[15][15] = true;
@@ -527,7 +527,7 @@ mod tests {
 
     #[test]
     fn toggle_row() {
-        let mut s = TenoriState::default();
+        let mut s = MatrixState::default();
         // Toggle row 3: all off -> all on
         s.toggle_row(3);
         assert!(s.grid[3].iter().all(|&v| v));
@@ -538,7 +538,7 @@ mod tests {
 
     #[test]
     fn toggle_col() {
-        let mut s = TenoriState::default();
+        let mut s = MatrixState::default();
         s.toggle_col(5);
         for row in 0..ROWS {
             assert!(s.grid[row][5]);
@@ -551,13 +551,13 @@ mod tests {
 
     #[test]
     fn active_rows_when_stopped() {
-        let s = TenoriState::default();
+        let s = MatrixState::default();
         assert!(s.active_rows().is_empty());
     }
 
     #[test]
     fn active_rows_when_playing() {
-        let mut s = TenoriState::default();
+        let mut s = MatrixState::default();
         s.grid[2][0] = true;
         s.grid[5][0] = true;
         s.toggle_play(); // play_col = 0
@@ -567,7 +567,7 @@ mod tests {
 
     #[test]
     fn active_note_names() {
-        let mut s = TenoriState::default();
+        let mut s = MatrixState::default();
         s.grid[0][0] = true; // C5
         s.grid[12][0] = true; // C4
         s.toggle_play();
@@ -577,7 +577,7 @@ mod tests {
 
     #[test]
     fn col_density() {
-        let mut s = TenoriState::default();
+        let mut s = MatrixState::default();
         assert_eq!(s.col_density(0), 0);
         s.grid[0][0] = true;
         s.grid[3][0] = true;
@@ -587,7 +587,7 @@ mod tests {
 
     #[test]
     fn row_to_midi_chromatic() {
-        let s = TenoriState::default();
+        let s = MatrixState::default();
         // Row 0 = C5 = MIDI 72
         assert_eq!(s.row_to_midi(0), 72);
         // Row 15 = A3 = MIDI 57
@@ -598,7 +598,7 @@ mod tests {
 
     #[test]
     fn row_to_midi_major_scale() {
-        let mut s = TenoriState::default();
+        let mut s = MatrixState::default();
         s.scale = Scale::Major;
         // Bottom row: base + major[0] = 57 + 0 = 57
         assert_eq!(s.row_to_midi(15), 57);
@@ -652,13 +652,13 @@ mod tests {
 
     #[test]
     fn default_mode_is_lead() {
-        let s = TenoriState::default();
+        let s = MatrixState::default();
         assert_eq!(s.mode, ChannelMode::Lead);
     }
 
     #[test]
     fn active_grid_returns_correct_grid() {
-        let mut s = TenoriState::default();
+        let mut s = MatrixState::default();
         s.grid[0][0] = true;
         s.drum_grid[1][1] = true;
 
@@ -672,7 +672,7 @@ mod tests {
 
     #[test]
     fn clear_grid_clears_only_active_mode() {
-        let mut s = TenoriState::default();
+        let mut s = MatrixState::default();
         s.grid[0][0] = true;
         s.drum_grid[1][1] = true;
 
@@ -685,7 +685,7 @@ mod tests {
 
     #[test]
     fn row_labels_change_with_mode() {
-        let mut s = TenoriState::default();
+        let mut s = MatrixState::default();
         assert_eq!(s.row_labels()[0], "C5");
         s.mode = ChannelMode::Drummer;
         assert_eq!(s.row_labels()[0], "Crash");
@@ -693,7 +693,7 @@ mod tests {
 
     #[test]
     fn drum_grid_independent_from_lead() {
-        let mut s = TenoriState::default();
+        let mut s = MatrixState::default();
         s.mode = ChannelMode::Lead;
         s.active_grid_mut()[3][5] = true;
         s.mode = ChannelMode::Drummer;
@@ -708,7 +708,7 @@ mod tests {
 
     #[test]
     fn active_note_names_in_drum_mode() {
-        let mut s = TenoriState::default();
+        let mut s = MatrixState::default();
         s.mode = ChannelMode::Drummer;
         s.drum_grid[14][0] = true; // Kick
         s.drum_grid[6][0] = true;  // Snare
@@ -745,7 +745,7 @@ mod tests {
 
     #[test]
     fn bass_grid_starts_empty() {
-        let s = TenoriState::default();
+        let s = MatrixState::default();
         for row in 0..ROWS {
             for col in 0..COLS {
                 assert!(!s.bass_grid[row][col]);
@@ -755,13 +755,13 @@ mod tests {
 
     #[test]
     fn bass_default_preset() {
-        let s = TenoriState::default();
+        let s = MatrixState::default();
         assert_eq!(s.bass_preset, BassPreset::SubBass);
     }
 
     #[test]
     fn active_grid_bass_mode() {
-        let mut s = TenoriState::default();
+        let mut s = MatrixState::default();
         s.bass_grid[3][5] = true;
         s.mode = ChannelMode::Bass;
         assert!(s.active_grid()[3][5]);
@@ -770,7 +770,7 @@ mod tests {
 
     #[test]
     fn row_labels_bass_mode() {
-        let mut s = TenoriState::default();
+        let mut s = MatrixState::default();
         s.mode = ChannelMode::Bass;
         assert_eq!(s.row_labels()[0], "C3");
         assert_eq!(s.row_labels()[15], "A1");
@@ -778,7 +778,7 @@ mod tests {
 
     #[test]
     fn row_to_bass_midi_chromatic() {
-        let s = TenoriState::default();
+        let s = MatrixState::default();
         // Row 15 = A1 = MIDI 33
         assert_eq!(s.row_to_bass_midi(15), 33);
         // Row 0 = C3 = MIDI 48
@@ -822,7 +822,7 @@ mod tests {
 
     #[test]
     fn drum_default_preset() {
-        let s = TenoriState::default();
+        let s = MatrixState::default();
         assert_eq!(s.drum_preset, DrumPreset::LinnDrum);
     }
 }

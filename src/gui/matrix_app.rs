@@ -8,10 +8,10 @@ use crate::engine::drum_sample::{load_drum_kit, SampleDrumVoiceShared};
 use crate::engine::effects::EffectsConfig;
 use crate::engine::filter::{FilterConfig, FilterType, LfoConfig, LfoTarget, LfoWaveform};
 use crate::engine::oscillator::{AdsrParams, Waveform};
-use crate::engine::tenori::build_tenori_graph;
+use crate::engine::matrix::build_matrix_graph;
 use crate::engine::voice::{VoiceAllocator, VoiceConfig, VoiceShared};
-use crate::tenori_synth::state::{self as ts, BassPreset, DrumPreset};
-use crate::tenori_synth::TenoriSynth;
+use crate::matrix_synth::state::{self as ts, BassPreset, DrumPreset};
+use crate::matrix_synth::MatrixSynth;
 
 use cpal::{Device, SupportedStreamConfig};
 
@@ -66,8 +66,8 @@ fn bass_preset_to_config(preset: BassPreset) -> VoiceConfig {
     }
 }
 
-pub struct TenoriApp {
-    tenori: TenoriSynth,
+pub struct MatrixApp {
+    matrix: MatrixSynth,
 
     // Audio engine
     device: Device,
@@ -113,7 +113,7 @@ pub struct TenoriApp {
     prev_active_bass: Vec<u8>,
 }
 
-impl TenoriApp {
+impl MatrixApp {
     pub fn new(_cc: &eframe::CreationContext) -> Self {
         let (device, supported_config) = engine::init_audio_device();
         let output_sr = supported_config.sample_rate() as f64;
@@ -128,7 +128,7 @@ impl TenoriApp {
         let drum_buffers = load_drum_kit(default_preset.dir_name(), output_sr);
 
         Self {
-            tenori: TenoriSynth::new(),
+            matrix: MatrixSynth::new(),
             device,
             supported_config,
             stream: None,
@@ -174,7 +174,7 @@ impl TenoriApp {
         self.drum_shared = (0..NUM_VOICES).map(|_| SampleDrumVoiceShared::new()).collect();
         self.bass_shared = self.bass_configs.iter().map(VoiceShared::new).collect();
 
-        let (graph, _, _) = build_tenori_graph(
+        let (graph, _, _) = build_matrix_graph(
             &self.allocator.voices,
             &self.voice_configs,
             &self.voice_shared,
@@ -198,7 +198,7 @@ impl TenoriApp {
         self.active_voice_configs = Some(self.voice_configs.clone());
         self.active_bass_configs = Some(self.bass_configs.clone());
         self.active_effects_cfg = Some(self.effects_cfg.clone());
-        self.active_drum_preset = Some(self.tenori.state().drum_preset);
+        self.active_drum_preset = Some(self.matrix.state().drum_preset);
     }
 
     fn needs_rebuild(&self) -> bool {
@@ -236,17 +236,17 @@ impl TenoriApp {
         }
 
         // Drum preset change triggers rebuild (new sample buffers)
-        if self.active_drum_preset != Some(self.tenori.state().drum_preset) {
+        if self.active_drum_preset != Some(self.matrix.state().drum_preset) {
             return true;
         }
 
         false
     }
 
-    /// Map TenoriState synth parameters to engine VoiceConfig.
+    /// Map MatrixState synth parameters to engine VoiceConfig.
     /// Lead params are always synced (graph always active). Effects sync always runs.
-    fn sync_voice_configs_from_tenori(&mut self) {
-        let state = self.tenori.state();
+    fn sync_voice_configs_from_matrix(&mut self) {
+        let state = self.matrix.state();
 
         // Always sync lead params (lead graph always active)
         let waveform = match state.osc_waveform {
@@ -342,7 +342,7 @@ impl TenoriApp {
 
     /// Handle playhead step changes: trigger BOTH lead and drum notes simultaneously.
     fn handle_step_change(&mut self) {
-        let state = self.tenori.state();
+        let state = self.matrix.state();
         let current_step = state.play_col;
 
         if current_step == self.prev_step {
@@ -423,7 +423,7 @@ impl TenoriApp {
     }
 }
 
-impl eframe::App for TenoriApp {
+impl eframe::App for MatrixApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Auto-start
         if !self.playing {
@@ -434,11 +434,11 @@ impl eframe::App for TenoriApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(ctx, |ui| {
-                self.tenori.show(ctx, ui);
+                self.matrix.show(ctx, ui);
             });
 
-        // Map tenori state to engine params
-        self.sync_voice_configs_from_tenori();
+        // Map matrix state to engine params
+        self.sync_voice_configs_from_matrix();
 
         // Handle step changes (trigger both lead and drum notes)
         self.handle_step_change();

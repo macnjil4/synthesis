@@ -1,7 +1,7 @@
 use eframe::egui;
 use eframe::egui::Stroke;
 
-use crate::tenori_synth::theme::Theme;
+use crate::matrix_synth::theme::Theme;
 
 pub fn hslider(ui: &mut egui::Ui, label: &str, value: &mut f32, min: f32, max: f32) {
     let desired_height = 14.0;

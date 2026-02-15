@@ -30,7 +30,7 @@ cargo run --release -- [OPTIONS]
 | `-a, --amplitude` | Amplitude (0.0 to 1.0) | `0.5` |
 | `-d, --duration` | Duration in seconds | `5` |
 | `--gui` | Launch the Synthwave mixer GUI (per-voice controls, MIDI, keyboard) | off |
-| `--tenori` | Launch the Tenori-on sequencer interface | off |
+| `--matrix` | Launch the Matrix sequencer interface | off |
 
 > In GUI mode (`--gui`), all parameters are controlled per-voice through the 8 channel strips. CLI options are for standalone single-tone playback only.
 
@@ -49,8 +49,8 @@ cargo run --release -- -w square -a 0.2
 # Launch the Synthwave GUI
 cargo run --release -- --gui
 
-# Launch the Tenori-on sequencer
-cargo run --release -- --tenori
+# Launch the Matrix sequencer
+cargo run --release -- --matrix
 ```
 
 ## GUI features (`--gui`)
@@ -74,9 +74,9 @@ cargo run --release -- --tenori
 - **Oscilloscope**: real-time waveform display in master panel
 - **Drum pads**: 4x4 visual grid
 
-## Tenori-on sequencer (`--tenori`)
+## Matrix sequencer (`--matrix`)
 
-A 16x16 matrix sequencer inspired by the Yamaha Tenori-on, with real-time audio synthesis.
+A 16x16 matrix sequencer inspired by the Yamaha Matrix, with real-time audio synthesis.
 
 ### Lead mode (melodic)
 
@@ -104,7 +104,7 @@ A 16x16 matrix sequencer inspired by the Yamaha Tenori-on, with real-time audio 
 - **Modifier clicks**: Shift+click toggles row, Ctrl+click toggles column
 - **8-voice polyphony** with voice stealing
 
-### Tenori-on keyboard shortcuts
+### Matrix keyboard shortcuts
 
 | Shortcut | Action |
 |---|---|
@@ -141,21 +141,21 @@ A 16x16 matrix sequencer inspired by the Yamaha Tenori-on, with real-time audio 
 
 ```
 src/
-├── main.rs              # CLI entry point (clap), --gui/--tenori flags
+├── main.rs              # CLI entry point (clap), --gui/--matrix flags
 ├── midi.rs              # MIDI input handler (midir), NoteEvent, TestOn/TestOff
 ├── preset.rs            # Preset system: save/load JSON, factory presets
 ├── engine/
 │   ├── mod.rs           # Audio output (cpal), init/start helpers
 │   ├── oscillator.rs    # Waveform generation (fundsp), ADSR, filter, LFO, effects, poly graph
 │   ├── drum.rs          # Drum synthesis: DrumParams, DRUM_KIT, DrumVoiceShared, drum poly graph
-│   ├── tenori.rs        # Combined Tenori graph: 8 lead + 8 drum voices, shared effects
+│   ├── matrix.rs        # Combined Matrix graph: 8 lead + 8 drum voices, shared effects
 │   ├── filter.rs        # FilterConfig, LfoConfig, Mul2, Add2, resonance_to_q
 │   ├── effects.rs       # FeedbackDelay, EffectsConfig, wire_delay/reverb/chorus
 │   └── voice.rs         # Voice, VoiceAllocator, VoiceConfig, VoiceShared
 ├── gui/
-│   ├── mod.rs           # GUI entry point (eframe), run() + run_tenori()
+│   ├── mod.rs           # GUI entry point (eframe), run() + run_matrix()
 │   ├── app.rs           # SynthApp: per-voice config sync, audio engine bridge
-│   ├── tenori_app.rs    # TenoriApp: tenori-on UI + audio engine bridge
+│   ├── matrix_app.rs    # MatrixApp: matrix UI + audio engine bridge
 │   └── oscilloscope.rs  # Waveform visualizer (egui_plot)
 ├── synth_ui/
 │   ├── mod.rs           # SynthUI: 8-strip layout, keyboard shortcuts, params bridge
@@ -174,9 +174,9 @@ src/
 │       ├── master.rs        # Volume + VU meters + oscilloscope
 │       ├── keyboard_panel.rs # Piano keyboard wrapper
 │       └── pads_panel.rs    # Drum pads wrapper
-└── tenori_synth/
-    ├── mod.rs           # TenoriSynth: main struct, layout, playhead logic
-    ├── state.rs         # TenoriState: grid, enums, scale, MIDI mapping
+└── matrix_synth/
+    ├── mod.rs           # MatrixSynth: main struct, layout, playhead logic
+    ├── state.rs         # MatrixState: grid, enums, scale, MIDI mapping
     ├── theme.rs         # Theme: colors, dimensions, shadows
     ├── grid.rs          # 16×16 matrix rendering and interaction
     ├── transport.rs     # Play/pause, BPM, swing controls

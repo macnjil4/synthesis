@@ -1,10 +1,10 @@
 use eframe::egui;
 use eframe::egui::Color32;
 
-use super::state::{ChannelMode, TenoriState};
+use super::state::{ChannelMode, MatrixState};
 use super::theme::Theme;
 
-pub fn draw(ui: &mut egui::Ui, state: &TenoriState) {
+pub fn draw(ui: &mut egui::Ui, state: &MatrixState) {
     ui.horizontal(|ui| {
         // LED
         let (led_rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
@@ -32,7 +32,7 @@ pub fn draw(ui: &mut egui::Ui, state: &TenoriState) {
 
         // Title
         ui.label(
-            egui::RichText::new("TENORI-SYNTH")
+            egui::RichText::new("MATRIX-SYNTH")
                 .size(20.0)
                 .strong()
                 .color(Theme::ACCENT_LIGHT),

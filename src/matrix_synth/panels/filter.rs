@@ -1,11 +1,11 @@
 use eframe::egui;
 
-use crate::tenori_synth::state::{FilterType, TenoriState};
-use crate::tenori_synth::widgets::hslider::hslider;
-use crate::tenori_synth::widgets::panel::synth_panel;
-use crate::tenori_synth::widgets::select_buttons::select_buttons;
+use crate::matrix_synth::state::{FilterType, MatrixState};
+use crate::matrix_synth::widgets::hslider::hslider;
+use crate::matrix_synth::widgets::panel::synth_panel;
+use crate::matrix_synth::widgets::select_buttons::select_buttons;
 
-pub fn draw(ui: &mut egui::Ui, state: &mut TenoriState) {
+pub fn draw(ui: &mut egui::Ui, state: &mut MatrixState) {
     synth_panel(ui, "Filter", |ui| {
         let options: Vec<(FilterType, &str)> =
             FilterType::ALL.iter().map(|f| (*f, f.label())).collect();

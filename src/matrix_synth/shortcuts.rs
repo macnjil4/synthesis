@@ -4,7 +4,7 @@ use eframe::egui::Key;
 use super::history::History;
 use super::state::*;
 
-pub fn handle(ui: &mut egui::Ui, state: &mut TenoriState, history: &mut History) {
+pub fn handle(ui: &mut egui::Ui, state: &mut MatrixState, history: &mut History) {
     let modifiers = ui.input(|i| i.modifiers);
 
     // ── Transport ──

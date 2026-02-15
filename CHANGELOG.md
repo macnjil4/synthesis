@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-02-15
+
+### Added
+
+- Per-voice channel strip architecture: each of the 8 voices has independent waveform, ADSR, filter, LFO, and level
+- `VoiceConfig` struct for per-voice topology and runtime parameters
+- `VoiceShared` struct for per-voice atomic shared parameters (cutoff, resonance, LFO rate/depth, level)
+- Per-voice level control (`voice_level`) in the audio signal chain
+- Channel strip UI: 8 compact vertical strips displayed side-by-side (mixer-style layout)
+- Mini knob widget (36x52px) for compact channel strip ADSR controls
+- Test button per voice: plays C4 through the specific voice with its own settings (~500ms)
+- `force_note_on()` / `force_note_off()` on `VoiceAllocator` for targeting specific voices
+- `NoteEvent::TestOn` / `NoteEvent::TestOff` variants for per-voice test triggers
+- `VoiceConfig::topology_differs()` for efficient rebuild detection across all 8 voices
+- Filter and LFO enable/disable toggle buttons per voice strip (compact "F" and "L" buttons)
+- Voice activity LED per strip (green = active, yellow = releasing, gray = idle)
+
+### Changed
+
+- `build_voice_unit()` now accepts per-voice parameters instead of global ones
+- `build_poly_graph()` iterates with per-voice `VoiceConfig` and `VoiceShared` arrays
+- `SynthApp` stores `Vec<VoiceConfig>` (8) and `Vec<VoiceShared>` (8) instead of global synth params
+- `SynthParams` carries `&mut [VoiceConfig]` instead of individual global fields
+- Rebuild detection checks topology changes across all 8 voice configs
+- Presets apply to all 8 voices on load (retro-compatible); save uses voice 1 config
+- Keyboard shortcuts (Ctrl+1-4 waveform, Tab filter, Shift+Tab LFO) now affect all voices
+- Window size increased from 1100x700 to 1400x850 for 8-strip layout
+- Master panel and effects moved to a dedicated column alongside voice strips
+- Voice allocator prefers releasing voices over idle (faster re-trigger response)
+
+## [0.6.0] - 2026-02-14
+
+### Added
+
+- Synthwave dark purple UI theme (`SynthTheme`) with custom color palette
+- Custom rotary knob widget (270° arc, drag-to-adjust, value display)
+- Custom vertical slider widget for ADSR and volume
+- Custom horizontal slider widget for filter and effects parameters
+- Select buttons widget (toggle group) for waveform, filter type, LFO selectors
+- VU meter widget (15 segments: green/yellow/red) driven by snoop RMS data
+- Themed piano keyboard with note names, rounded bottom corners, key highlight
+- Drum pads 4×4 grid (visual only, not connected to audio)
+- Panel layout system with themed frames and shadow
+- Keyboard shortcuts: AZERTY piano mapping (W/X/C/V... for octave 3, A/Z/E/R... for octave 4)
+- Global shortcuts: Ctrl+1-4 (waveform), Ctrl+Up/Down (volume), Tab (filter cycle), Shift+Tab (LFO target), Space (panic)
+- Multi-key support via `pressed_keys: HashSet<u8>` for chords
+- Pitch and Detune knobs in oscillator panel (UI-only, not connected to engine)
+- Header bar with LED status indicator and version display
+- Preset bar with MIDI connection controls integrated
+- `SynthUI` module (`src/synth_ui/`) with 18 files: theme, 7 widgets, 8 panels, mod.rs
+
+### Changed
+
+- GUI completely redesigned from standard egui widgets to custom Synthwave theme
+- Window size changed from 900×950 to 1100×700 (fixed layout, no scroll)
+- Rendering delegated from `SynthApp::update()` to `SynthUI::show()` via `SynthParams` bridge
+- Auto-start audio on launch (removed Play/Stop button)
+- Old `gui/keyboard.rs` replaced by `synth_ui/widgets/keyboard.rs`
+- Oscilloscope moved into Master panel
+- Window title changed to "Synthwave"
+
 ## [0.5.0] - 2026-02-14
 
 ### Added

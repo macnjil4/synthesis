@@ -5,7 +5,7 @@ use super::effects::{EffectsConfig, EffectSlot, wire_delay, wire_reverb, wire_ch
 use super::filter::{
     Add2, FilterConfig, FilterType, LfoConfig, LfoTarget, LfoWaveform, Mul2, resonance_to_q,
 };
-use super::voice::Voice;
+use super::voice::{Voice, VoiceConfig, VoiceShared};
 
 /// ADSR envelope parameters.
 #[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -143,6 +143,7 @@ pub fn build_voice_unit(
     gate: &Shared,
     velocity: &Shared,
     master_amp: &Shared,
+    voice_level: &Shared,
     adsr: &AdsrParams,
     filter_cfg: &FilterConfig,
     cutoff: &Shared,
@@ -242,10 +243,16 @@ pub fn build_voice_unit(
         signal_id = mul_id;
     }
 
+    // × per-voice level
+    let lvl_id = net.push(Box::new(var(voice_level) >> follow(0.01)));
+    let lvl_mul_id = net.push(Box::new(An(Mul2::new())));
+    net.connect(signal_id, 0, lvl_mul_id, 0);
+    net.connect(lvl_id, 0, lvl_mul_id, 1);
+
     // × master amplitude
     let amp_id = net.push(Box::new(var(master_amp) >> follow(0.01)));
     let amp_mul_id = net.push(Box::new(An(Mul2::new())));
-    net.connect(signal_id, 0, amp_mul_id, 0);
+    net.connect(lvl_mul_id, 0, amp_mul_id, 0);
     net.connect(amp_id, 0, amp_mul_id, 1);
 
     // Split to stereo (1 input → 2 outputs)
@@ -260,19 +267,14 @@ pub fn build_voice_unit(
 }
 
 /// Build a polyphonic audio graph with 8 voices summed together, plus effects chain.
+/// Each voice uses its own VoiceConfig for waveform, ADSR, filter, LFO, and level.
 /// Returns the graph plus left/right Snoop frontends for oscilloscope visualization.
 #[allow(clippy::too_many_arguments)]
 pub fn build_poly_graph(
-    waveform: Waveform,
     voices: &[Voice],
+    voice_configs: &[VoiceConfig],
+    voice_shared: &[VoiceShared],
     master_amp: &Shared,
-    adsr: &AdsrParams,
-    filter_cfg: &FilterConfig,
-    cutoff: &Shared,
-    resonance: &Shared,
-    lfo_cfg: &LfoConfig,
-    lfo_rate: &Shared,
-    lfo_depth: &Shared,
     effects_cfg: &EffectsConfig,
     delay_time: &Shared,
     delay_feedback: &Shared,
@@ -291,28 +293,56 @@ pub fn build_poly_graph(
     net.connect_output(snoop_l_id, 0, 0);
     net.connect_output(snoop_r_id, 0, 1);
 
-    // Sum points: pass() nodes where all voices feed into (Net auto-sums multiple connections)
-    let sum_l_id = net.push(Box::new(pass()));
-    let sum_r_id = net.push(Box::new(pass()));
-
-    for voice in voices {
+    // Build all voice units and sum them with a chain of Add2 nodes.
+    // Net::connect replaces (not sums) existing connections, so we must
+    // explicitly sum voices pairwise.
+    let mut voice_ids: Vec<NodeId> = Vec::new();
+    for (i, voice) in voices.iter().enumerate() {
+        let cfg = &voice_configs[i];
+        let shared = &voice_shared[i];
         let unit = build_voice_unit(
-            waveform,
+            cfg.waveform,
             &voice.freq,
             &voice.gate,
             &voice.velocity,
             master_amp,
-            adsr,
-            filter_cfg,
-            cutoff,
-            resonance,
-            lfo_cfg,
-            lfo_rate,
-            lfo_depth,
+            &shared.level,
+            &cfg.adsr,
+            &cfg.filter_cfg,
+            &shared.cutoff,
+            &shared.resonance,
+            &cfg.lfo_cfg,
+            &shared.lfo_rate,
+            &shared.lfo_depth,
         );
-        let voice_id = net.push(unit);
-        net.connect(voice_id, 0, sum_l_id, 0);
-        net.connect(voice_id, 1, sum_r_id, 0);
+        voice_ids.push(net.push(unit));
+    }
+
+    // Sum left channels: chain of Add2 nodes
+    let mut sum_l_id = {
+        // Start with first voice's left output through a pass() node
+        let p = net.push(Box::new(pass()));
+        net.connect(voice_ids[0], 0, p, 0);
+        p
+    };
+    for &vid in &voice_ids[1..] {
+        let add = net.push(Box::new(An(Add2::new())));
+        net.connect(sum_l_id, 0, add, 0);
+        net.connect(vid, 0, add, 1);
+        sum_l_id = add;
+    }
+
+    // Sum right channels: chain of Add2 nodes
+    let mut sum_r_id = {
+        let p = net.push(Box::new(pass()));
+        net.connect(voice_ids[0], 1, p, 0);
+        p
+    };
+    for &vid in &voice_ids[1..] {
+        let add = net.push(Box::new(An(Add2::new())));
+        net.connect(sum_r_id, 0, add, 0);
+        net.connect(vid, 1, add, 1);
+        sum_r_id = add;
     }
 
     // Effects chain: start from sum points
@@ -365,13 +395,22 @@ mod tests {
         LfoConfig::default()
     }
 
-    fn default_shared_params() -> (Shared, Shared, Shared, Shared) {
+    fn default_shared_params() -> (Shared, Shared, Shared, Shared, Shared) {
         (
             Shared::new(1000.0), // cutoff
             Shared::new(0.0),    // resonance
             Shared::new(1.0),    // lfo_rate
             Shared::new(0.0),    // lfo_depth
+            Shared::new(1.0),    // voice_level
         )
+    }
+
+    fn default_voice_configs(n: usize) -> Vec<VoiceConfig> {
+        (0..n).map(|_| VoiceConfig::default()).collect()
+    }
+
+    fn default_voice_shared(configs: &[VoiceConfig]) -> Vec<VoiceShared> {
+        configs.iter().map(VoiceShared::new).collect()
     }
 
     fn default_effects_cfg() -> EffectsConfig {
@@ -558,7 +597,7 @@ mod tests {
         let adsr = AdsrParams::default();
         let filter_cfg = default_filter_cfg();
         let lfo_cfg = default_lfo_cfg();
-        let (cutoff, resonance, lfo_rate, lfo_depth) = default_shared_params();
+        let (cutoff, resonance, lfo_rate, lfo_depth, voice_level) = default_shared_params();
 
         for waveform in [
             Waveform::Sine,
@@ -567,7 +606,7 @@ mod tests {
             Waveform::Triangle,
         ] {
             let unit = build_voice_unit(
-                waveform, &freq, &gate, &velocity, &master_amp, &adsr,
+                waveform, &freq, &gate, &velocity, &master_amp, &voice_level, &adsr,
                 &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
             );
             assert_eq!(unit.inputs(), 0, "{waveform} voice should have 0 inputs");
@@ -589,10 +628,10 @@ mod tests {
         };
         let filter_cfg = default_filter_cfg();
         let lfo_cfg = default_lfo_cfg();
-        let (cutoff, resonance, lfo_rate, lfo_depth) = default_shared_params();
+        let (cutoff, resonance, lfo_rate, lfo_depth, voice_level) = default_shared_params();
 
         let mut unit = build_voice_unit(
-            Waveform::Sine, &freq, &gate, &velocity, &master_amp, &adsr,
+            Waveform::Sine, &freq, &gate, &velocity, &master_amp, &voice_level, &adsr,
             &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
         );
         unit.set_sample_rate(SAMPLE_RATE);
@@ -630,10 +669,10 @@ mod tests {
         };
         let filter_cfg = default_filter_cfg();
         let lfo_cfg = default_lfo_cfg();
-        let (cutoff, resonance, lfo_rate, lfo_depth) = default_shared_params();
+        let (cutoff, resonance, lfo_rate, lfo_depth, voice_level) = default_shared_params();
 
         let unit = build_voice_unit(
-            Waveform::Sine, &freq, &gate, &velocity, &master_amp, &adsr,
+            Waveform::Sine, &freq, &gate, &velocity, &master_amp, &voice_level, &adsr,
             &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
         );
         let samples = collect_samples(unit, 4096);
@@ -654,6 +693,7 @@ mod tests {
         let gate = Shared::new(1.0);
         let velocity = Shared::new(1.0);
         let master_amp = Shared::new(0.5);
+        let voice_level = Shared::new(1.0);
         let adsr = AdsrParams::default();
         let cutoff = Shared::new(1000.0);
         let resonance = Shared::new(0.0);
@@ -667,7 +707,7 @@ mod tests {
                 enabled: true,
             };
             let unit = build_voice_unit(
-                Waveform::Saw, &freq, &gate, &velocity, &master_amp, &adsr,
+                Waveform::Saw, &freq, &gate, &velocity, &master_amp, &voice_level, &adsr,
                 &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
             );
             assert_eq!(unit.inputs(), 0);
@@ -681,6 +721,7 @@ mod tests {
         let gate = Shared::new(0.0);
         let velocity = Shared::new(1.0);
         let master_amp = Shared::new(0.5);
+        let voice_level = Shared::new(1.0);
         let adsr = AdsrParams {
             attack: 0.001,
             decay: 0.0,
@@ -698,7 +739,7 @@ mod tests {
         let lfo_depth = Shared::new(0.0);
 
         let mut unit = build_voice_unit(
-            Waveform::Saw, &freq, &gate, &velocity, &master_amp, &adsr,
+            Waveform::Saw, &freq, &gate, &velocity, &master_amp, &voice_level, &adsr,
             &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
         );
         unit.set_sample_rate(SAMPLE_RATE);
@@ -718,6 +759,7 @@ mod tests {
         let gate = Shared::new(1.0);
         let velocity = Shared::new(1.0);
         let master_amp = Shared::new(0.5);
+        let voice_level = Shared::new(1.0);
         let adsr = AdsrParams::default();
         let filter_cfg = default_filter_cfg();
         let cutoff = Shared::new(1000.0);
@@ -733,7 +775,7 @@ mod tests {
                     enabled: true,
                 };
                 let unit = build_voice_unit(
-                    Waveform::Saw, &freq, &gate, &velocity, &master_amp, &adsr,
+                    Waveform::Saw, &freq, &gate, &velocity, &master_amp, &voice_level, &adsr,
                     &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
                 );
                 assert_eq!(unit.inputs(), 0);
@@ -748,6 +790,7 @@ mod tests {
         let gate = Shared::new(0.0);
         let velocity = Shared::new(1.0);
         let master_amp = Shared::new(0.5);
+        let voice_level = Shared::new(1.0);
         let adsr = AdsrParams {
             attack: 0.001,
             decay: 0.0,
@@ -766,7 +809,7 @@ mod tests {
         let lfo_depth = Shared::new(0.3);
 
         let mut unit = build_voice_unit(
-            Waveform::Sine, &freq, &gate, &velocity, &master_amp, &adsr,
+            Waveform::Sine, &freq, &gate, &velocity, &master_amp, &voice_level, &adsr,
             &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
         );
         unit.set_sample_rate(SAMPLE_RATE);
@@ -786,6 +829,7 @@ mod tests {
         let gate = Shared::new(0.0);
         let velocity = Shared::new(1.0);
         let master_amp = Shared::new(0.5);
+        let voice_level = Shared::new(1.0);
         let adsr = AdsrParams {
             attack: 0.001,
             decay: 0.0,
@@ -807,7 +851,7 @@ mod tests {
         let lfo_depth = Shared::new(0.5);
 
         let mut unit = build_voice_unit(
-            Waveform::Saw, &freq, &gate, &velocity, &master_amp, &adsr,
+            Waveform::Saw, &freq, &gate, &velocity, &master_amp, &voice_level, &adsr,
             &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
         );
         unit.set_sample_rate(SAMPLE_RATE);
@@ -825,10 +869,6 @@ mod tests {
     fn build_poly_graph_returns_stereo() {
         let voices: Vec<Voice> = (0..8).map(|_| Voice::new()).collect();
         let master_amp = Shared::new(0.5);
-        let adsr = AdsrParams::default();
-        let filter_cfg = default_filter_cfg();
-        let lfo_cfg = default_lfo_cfg();
-        let (cutoff, resonance, lfo_rate, lfo_depth) = default_shared_params();
         let effects_cfg = default_effects_cfg();
         let (delay_time, delay_feedback, delay_mix, reverb_mix, chorus_mix) =
             default_effects_shared();
@@ -839,9 +879,12 @@ mod tests {
             Waveform::Square,
             Waveform::Triangle,
         ] {
+            let voice_configs: Vec<VoiceConfig> = (0..8)
+                .map(|_| VoiceConfig { waveform, ..VoiceConfig::default() })
+                .collect();
+            let voice_shared = default_voice_shared(&voice_configs);
             let (graph, _, _) = build_poly_graph(
-                waveform, &voices, &master_amp, &adsr,
-                &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
+                &voices, &voice_configs, &voice_shared, &master_amp,
                 &effects_cfg, &delay_time, &delay_feedback, &delay_mix,
                 &reverb_mix, &chorus_mix,
             );
@@ -858,22 +901,20 @@ mod tests {
         voices[0].velocity.set_value(1.0);
 
         let master_amp = Shared::new(0.5);
-        let adsr = AdsrParams {
+        let mut voice_configs = default_voice_configs(8);
+        voice_configs[0].adsr = AdsrParams {
             attack: 0.001,
             decay: 0.0,
             sustain: 1.0,
             release: 0.01,
         };
-        let filter_cfg = default_filter_cfg();
-        let lfo_cfg = default_lfo_cfg();
-        let (cutoff, resonance, lfo_rate, lfo_depth) = default_shared_params();
+        let voice_shared = default_voice_shared(&voice_configs);
         let effects_cfg = default_effects_cfg();
         let (delay_time, delay_feedback, delay_mix, reverb_mix, chorus_mix) =
             default_effects_shared();
 
         let (graph, mut snoop_l, mut snoop_r) = build_poly_graph(
-            Waveform::Sine, &voices, &master_amp, &adsr,
-            &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
+            &voices, &voice_configs, &voice_shared, &master_amp,
             &effects_cfg, &delay_time, &delay_feedback, &delay_mix,
             &reverb_mix, &chorus_mix,
         );
@@ -894,15 +935,14 @@ mod tests {
         voices[0].velocity.set_value(1.0);
 
         let master_amp = Shared::new(0.5);
-        let adsr = AdsrParams {
+        let mut voice_configs = default_voice_configs(8);
+        voice_configs[0].adsr = AdsrParams {
             attack: 0.001,
             decay: 0.0,
             sustain: 1.0,
             release: 0.01,
         };
-        let filter_cfg = default_filter_cfg();
-        let lfo_cfg = default_lfo_cfg();
-        let (cutoff, resonance, lfo_rate, lfo_depth) = default_shared_params();
+        let voice_shared = default_voice_shared(&voice_configs);
         let effects_cfg = EffectsConfig {
             delay_enabled: true,
             reverb_enabled: true,
@@ -916,8 +956,7 @@ mod tests {
         let chorus_mix = Shared::new(0.3);
 
         let (graph, mut snoop_l, mut snoop_r) = build_poly_graph(
-            Waveform::Sine, &voices, &master_amp, &adsr,
-            &filter_cfg, &cutoff, &resonance, &lfo_cfg, &lfo_rate, &lfo_depth,
+            &voices, &voice_configs, &voice_shared, &master_amp,
             &effects_cfg, &delay_time, &delay_feedback, &delay_mix,
             &reverb_mix, &chorus_mix,
         );
@@ -928,6 +967,73 @@ mod tests {
 
         assert!(snoop_l.total() > 0, "snoop should receive data with effects");
         assert!(snoop_r.total() > 0, "snoop should receive data with effects");
+    }
+
+    #[test]
+    fn build_poly_graph_multiple_voices_contribute() {
+        // Verify that activating multiple voices produces louder output
+        // than a single voice (i.e., voices are properly summed).
+        let fast_adsr = AdsrParams {
+            attack: 0.001,
+            decay: 0.0,
+            sustain: 1.0,
+            release: 0.01,
+        };
+        let master_amp = Shared::new(0.5);
+        let effects_cfg = default_effects_cfg();
+        let (delay_time, delay_feedback, delay_mix, reverb_mix, chorus_mix) =
+            default_effects_shared();
+
+        // Helper: build graph, warm up, trigger gates, collect samples, return RMS
+        let measure_rms = |active_voices: &[(usize, f32)]| -> f32 {
+            let voices: Vec<Voice> = (0..8).map(|_| Voice::new()).collect();
+            let mut cfgs = default_voice_configs(8);
+            for &(idx, _) in active_voices {
+                cfgs[idx].adsr = fast_adsr;
+            }
+            let shared = default_voice_shared(&cfgs);
+            let (mut graph, _, _) = build_poly_graph(
+                &voices, &cfgs, &shared, &master_amp,
+                &effects_cfg, &delay_time, &delay_feedback, &delay_mix,
+                &reverb_mix, &chorus_mix,
+            );
+            graph.set_sample_rate(SAMPLE_RATE);
+            graph.allocate();
+
+            // Warm up with gate off
+            for _ in 0..256 {
+                graph.get_stereo();
+            }
+
+            // Trigger gates
+            for &(idx, freq) in active_voices {
+                voices[idx].freq.set_value(freq);
+                voices[idx].gate.set_value(1.0);
+                voices[idx].velocity.set_value(1.0);
+            }
+
+            // Collect samples after gate trigger
+            let mut samples = Vec::new();
+            for _ in 0..8192 {
+                samples.push(graph.get_stereo());
+            }
+
+            // RMS of the second half (steady state)
+            let tail = &samples[4096..];
+            (tail.iter().map(|(l, _)| l * l).sum::<f32>() / tail.len() as f32).sqrt()
+        };
+
+        // Single voice (voice 0 at 440 Hz)
+        let rms_1 = measure_rms(&[(0, 440.0)]);
+
+        // Two voices (voice 0 at 440 Hz + voice 3 at 554 Hz)
+        let rms_2 = measure_rms(&[(0, 440.0), (3, 554.37)]);
+
+        assert!(rms_1 > 0.01, "single voice should produce sound, rms={rms_1}");
+        assert!(
+            rms_2 > rms_1 * 1.2,
+            "two voices (rms={rms_2}) should be louder than one (rms={rms_1})"
+        );
     }
 
     #[test]

@@ -2,6 +2,7 @@ mod engine;
 mod gui;
 mod midi;
 mod preset;
+mod synth_ui;
 
 use clap::Parser;
 use engine::oscillator::Waveform;

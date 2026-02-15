@@ -5,6 +5,10 @@ use std::sync::mpsc;
 pub enum NoteEvent {
     On { note: u8, velocity: u8 },
     Off { note: u8 },
+    /// Force a note onto a specific voice (used by per-voice Test buttons).
+    TestOn { voice_idx: usize, note: u8, velocity: u8 },
+    /// Release a specific voice's test note.
+    TestOff { voice_idx: usize },
 }
 
 impl NoteEvent {

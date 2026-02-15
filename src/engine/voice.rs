@@ -1,8 +1,82 @@
 use fundsp::shared::Shared;
+use serde::{Deserialize, Serialize};
+
+use super::filter::{FilterConfig, LfoConfig};
+use super::oscillator::{AdsrParams, Waveform};
 
 /// Convert a MIDI note number to frequency in Hz.
 pub fn midi_note_to_freq(note: u8) -> f32 {
     440.0 * 2.0f32.powf((note as f32 - 69.0) / 12.0)
+}
+
+/// Per-voice configuration (topology-changing params trigger audio graph rebuild).
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct VoiceConfig {
+    pub waveform: Waveform,
+    pub adsr: AdsrParams,
+    pub filter_cfg: FilterConfig,
+    pub cutoff: f32,
+    pub resonance: f32,
+    pub lfo_cfg: LfoConfig,
+    pub lfo_rate: f32,
+    pub lfo_depth: f32,
+    pub level: f32,
+}
+
+impl Default for VoiceConfig {
+    fn default() -> Self {
+        Self {
+            waveform: Waveform::Sine,
+            adsr: AdsrParams::default(),
+            filter_cfg: FilterConfig::default(),
+            cutoff: 1000.0,
+            resonance: 0.0,
+            lfo_cfg: LfoConfig::default(),
+            lfo_rate: 1.0,
+            lfo_depth: 0.0,
+            level: 1.0,
+        }
+    }
+}
+
+impl VoiceConfig {
+    /// Returns true if the topology-changing fields differ (requires graph rebuild).
+    pub fn topology_differs(&self, other: &Self) -> bool {
+        self.waveform != other.waveform
+            || self.adsr != other.adsr
+            || self.filter_cfg != other.filter_cfg
+            || self.lfo_cfg != other.lfo_cfg
+    }
+}
+
+/// Per-voice `Shared` atomics for runtime (non-topology) parameters.
+pub struct VoiceShared {
+    pub cutoff: Shared,
+    pub resonance: Shared,
+    pub lfo_rate: Shared,
+    pub lfo_depth: Shared,
+    pub level: Shared,
+}
+
+impl VoiceShared {
+    pub fn new(cfg: &VoiceConfig) -> Self {
+        Self {
+            cutoff: Shared::new(cfg.cutoff),
+            resonance: Shared::new(cfg.resonance),
+            lfo_rate: Shared::new(cfg.lfo_rate),
+            lfo_depth: Shared::new(cfg.lfo_depth),
+            level: Shared::new(cfg.level),
+        }
+    }
+
+    /// Sync UI values to atomic Shared params (called every frame).
+    pub fn sync(&self, cfg: &VoiceConfig) {
+        self.cutoff.set_value(cfg.cutoff);
+        self.resonance.set_value(cfg.resonance);
+        self.lfo_rate.set_value(cfg.lfo_rate);
+        self.lfo_depth.set_value(cfg.lfo_depth);
+        self.level.set_value(cfg.level);
+    }
 }
 
 /// A single synthesizer voice with shared audio parameters.
@@ -46,7 +120,7 @@ impl VoiceAllocator {
     }
 
     /// Allocate a voice for a note-on event.
-    /// Priority: idle voice > releasing voice > round-robin (voice stealing).
+    /// Priority: releasing voice (reuse) > idle voice > round-robin (voice stealing).
     pub fn note_on(&mut self, note: u8, velocity: u8) {
         // Check if this note is already playing — retrigger it
         if let Some(v) = self.voices.iter_mut().find(|v| v.note == Some(note)) {
@@ -57,11 +131,11 @@ impl VoiceAllocator {
             return;
         }
 
-        // Find an idle voice
-        let idx = if let Some(i) = self.voices.iter().position(|v| v.is_idle()) {
+        // Prefer a releasing voice (its ADSR tail is fading anyway)
+        let idx = if let Some(i) = self.voices.iter().position(|v| v.releasing) {
             i
-        // Find a releasing voice
-        } else if let Some(i) = self.voices.iter().position(|v| v.releasing) {
+        // Then an idle voice
+        } else if let Some(i) = self.voices.iter().position(|v| v.is_idle()) {
             i
         // Round-robin steal
         } else {
@@ -84,6 +158,26 @@ impl VoiceAllocator {
             v.gate.set_value(0.0);
             v.note = None;
             v.releasing = true;
+        }
+    }
+
+    /// Force a note onto a specific voice index (used by per-voice Test buttons).
+    pub fn force_note_on(&mut self, voice_idx: usize, note: u8, velocity: u8) {
+        if let Some(voice) = self.voices.get_mut(voice_idx) {
+            voice.freq.set_value(midi_note_to_freq(note));
+            voice.gate.set_value(1.0);
+            voice.velocity.set_value(velocity as f32 / 127.0);
+            voice.note = Some(note);
+            voice.releasing = false;
+        }
+    }
+
+    /// Force note-off on a specific voice index.
+    pub fn force_note_off(&mut self, voice_idx: usize) {
+        if let Some(voice) = self.voices.get_mut(voice_idx) {
+            voice.gate.set_value(0.0);
+            voice.note = None;
+            voice.releasing = true;
         }
     }
 
@@ -151,14 +245,15 @@ mod tests {
     }
 
     #[test]
-    fn allocator_prefers_idle_over_releasing() {
+    fn allocator_prefers_releasing_over_idle() {
         let mut alloc = VoiceAllocator::new(2);
         alloc.note_on(60, 100);
         alloc.note_off(60); // voice 0 is now releasing
 
         alloc.note_on(64, 100);
-        // Should pick voice 1 (idle) over voice 0 (releasing)
-        assert_eq!(alloc.voices[1].note, Some(64));
+        // Should pick voice 0 (releasing) over voice 1 (idle)
+        // Reusing releasing voices avoids exhausting all idle voices
+        assert_eq!(alloc.voices[0].note, Some(64));
     }
 
     #[test]
@@ -204,5 +299,55 @@ mod tests {
             alloc.note_on(note, 100);
         }
         assert_eq!(alloc.active_count(), 8);
+    }
+
+    #[test]
+    fn force_note_on_targets_specific_voice() {
+        let mut alloc = VoiceAllocator::new(8);
+        alloc.force_note_on(3, 60, 100);
+        assert_eq!(alloc.voices[3].note, Some(60));
+        assert!(!alloc.voices[3].releasing);
+        // Other voices should be idle
+        assert!(alloc.voices[0].is_idle());
+        assert!(alloc.voices[7].is_idle());
+    }
+
+    #[test]
+    fn force_note_off_releases_specific_voice() {
+        let mut alloc = VoiceAllocator::new(8);
+        alloc.force_note_on(2, 60, 100);
+        alloc.force_note_off(2);
+        assert_eq!(alloc.voices[2].note, None);
+        assert!(alloc.voices[2].releasing);
+    }
+
+    #[test]
+    fn voice_config_default() {
+        let cfg = VoiceConfig::default();
+        assert_eq!(cfg.waveform, Waveform::Sine);
+        assert_eq!(cfg.level, 1.0);
+        assert_eq!(cfg.cutoff, 1000.0);
+        assert_eq!(cfg.resonance, 0.0);
+    }
+
+    #[test]
+    fn voice_config_topology_differs() {
+        let a = VoiceConfig::default();
+        let mut b = a.clone();
+        assert!(!a.topology_differs(&b));
+
+        b.waveform = Waveform::Saw;
+        assert!(a.topology_differs(&b));
+    }
+
+    #[test]
+    fn voice_config_runtime_change_no_topology_diff() {
+        let a = VoiceConfig::default();
+        let mut b = a.clone();
+        b.cutoff = 5000.0;
+        b.resonance = 0.8;
+        b.level = 0.5;
+        // Runtime-only changes should NOT trigger topology diff
+        assert!(!a.topology_differs(&b));
     }
 }

@@ -1,6 +1,9 @@
+pub mod drum;
+pub mod drum_sample;
 pub mod effects;
 pub mod filter;
 pub mod oscillator;
+pub mod tenori;
 pub mod voice;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};

@@ -131,11 +131,12 @@ impl VoiceAllocator {
             return;
         }
 
-        // Prefer a releasing voice (its ADSR tail is fading anyway)
-        let idx = if let Some(i) = self.voices.iter().position(|v| v.releasing) {
+        // Prefer an idle voice so consecutive same-note triggers use separate voices
+        // (the releasing voice keeps its ADSR tail while the new voice starts a fresh attack)
+        let idx = if let Some(i) = self.voices.iter().position(|v| v.is_idle()) {
             i
-        // Then an idle voice
-        } else if let Some(i) = self.voices.iter().position(|v| v.is_idle()) {
+        // Then a releasing voice
+        } else if let Some(i) = self.voices.iter().position(|v| v.releasing) {
             i
         // Round-robin steal
         } else {
@@ -245,15 +246,16 @@ mod tests {
     }
 
     #[test]
-    fn allocator_prefers_releasing_over_idle() {
+    fn allocator_prefers_idle_over_releasing() {
         let mut alloc = VoiceAllocator::new(2);
         alloc.note_on(60, 100);
         alloc.note_off(60); // voice 0 is now releasing
 
         alloc.note_on(64, 100);
-        // Should pick voice 0 (releasing) over voice 1 (idle)
-        // Reusing releasing voices avoids exhausting all idle voices
-        assert_eq!(alloc.voices[0].note, Some(64));
+        // Should pick voice 1 (idle) over voice 0 (releasing)
+        // This ensures consecutive same-note triggers use separate voices
+        // so the audio thread sees a proper gate rising edge.
+        assert_eq!(alloc.voices[1].note, Some(64));
     }
 
     #[test]

@@ -1,0 +1,9 @@
+pub mod bass_preset;
+pub mod draw_mode;
+pub mod drum_kit;
+pub mod effects;
+pub mod envelope;
+pub mod filter;
+pub mod lfo;
+pub mod oscillator;
+pub mod scale;

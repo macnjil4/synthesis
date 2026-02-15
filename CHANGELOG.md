@@ -7,6 +7,154 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-02-15
+
+### Added
+
+- **Sample-based drum engine**: WAV playback replaces noise+sine synthesis for realistic drum sounds
+- `SamplePlayer` custom AudioNode: one-shot WAV playback with linear interpolation and pitch shifting
+- `SampleDrumVoiceShared`: per-voice atomic shared parameters (sample_index, pitch_ratio, level)
+- `build_sample_drum_voice_unit()`: signal chain SamplePlayer → velocity → level → master_amp → stereo
+- `load_drum_kit()`: loads 16 WAV files per kit using `hound`, normalizes to f32, resamples to output rate
+- 3 Oramics drum kits (Public Domain samples from [oramics/sampled](https://github.com/oramics/sampled)):
+  - **LinnDrum** (LM-2): classic 80s kit, polyvalent
+  - **TR-505**: Roland electronic kit
+  - **CR-78**: vintage Roland, warm tones
+- `DrumPreset::dir_name()` method for kit directory lookup
+- 48 WAV sample files in `samples/` (16 per kit: crash, ride, hi-hats, clap, rimshot, snare, toms, congas, cowbell, clave, kick)
+- 8 new unit tests for SamplePlayer, sample drum voice, and kit loading
+- Dependency: `hound = "3.5"` for WAV file reading
+
+### Changed
+
+- `DrumPreset` enum: LinnDrum / TR-505 / CR-78 (replaces Standard/Rock/Jazz/Dance/Electronic/Latin)
+- Drum voice graph uses `SamplePlayer` instead of noise+sine→filter→ADSR synthesis
+- `build_tenori_graph()` accepts `drum_buffers: &Arc<Vec<Vec<f32>>>` for sample data
+- Drum preset change triggers sample reload + graph rebuild (new buffers)
+- Tune knob now controls pitch_ratio (0.5x–2.0x playback speed) instead of frequency offset
+- Drum Kit panel dynamically shows 3 kit buttons instead of 6
+- Version bumped to 0.13.0
+
+## [0.12.0] - 2026-02-15
+
+### Added
+
+- **Drum kit presets**: 6 selectable drum kits — Standard, Rock, Jazz, Dance, Electronic, Latin
+- `DrumPreset` enum in state with `drum_preset` field (default: Standard)
+- 5 new drum kit parameter arrays: `DRUM_KIT_ROCK`, `DRUM_KIT_JAZZ`, `DRUM_KIT_DANCE`, `DRUM_KIT_ELECTRONIC`, `DRUM_KIT_LATIN`
+- `drum_kit_for_preset()` function to select kit by preset
+- Drum Kit panel now shows preset selector buttons above Tune/Decay/Color knobs
+- No graph rebuild needed when switching drum presets (parameters set via Shared atomics per-hit)
+- 5 new unit tests for drum preset state and kit lookup
+
+### Changed
+
+- Drum note triggering uses selected preset's kit instead of hardcoded `DRUM_KIT`
+- Version bumped to 0.12.0
+
+## [0.11.0] - 2026-02-15
+
+### Added
+
+- **Bass mode**: third simultaneous voice channel with pink/rose color scheme (A1→C3 range)
+- 6 bass presets: Sub Bass, Acid Bass, Funk Bass, Warm Bass, Pluck Bass, Growl Bass — each with unique waveform, ADSR, filter, and LFO settings
+- `BassPreset` enum in state with `bass_grid`, `bass_preset`, `BASS_NOTE_LABELS`, `BASS_BASE_MIDI_NOTE`, `row_to_bass_midi()`
+- Bass preset selector panel in sidebar (Bass mode)
+- Pink theme colors: `BASS_ACCENT`, `BASS_CELL_ON`, `BASS_CELL_HIT`, `BASS_CELL_HIT_GLOW`, `GHOST_BASS`
+- Ghost overlay now shows 2 other modes (3-way: Lead/Drum/Bass all visible in transparency)
+- 8 bass voice units in audio graph (total: 24 voices — 8 lead + 8 drum + 8 bass)
+- Bass preset change triggers audio graph rebuild (topology-changing: waveform, filter, LFO)
+- Scale selection (Chromatic/Major/Minor/Pentatonic) applies to Bass mode
+- 11 new unit tests for Bass state, preset, grid, MIDI mapping
+
+### Changed
+
+- Mode cycle (M key): Lead → Drummer → Bass → Lead
+- `ChannelMode::ALL` now contains 3 modes
+- `build_tenori_graph()` accepts bass voices/configs/shared parameters
+- Header badge shows "BASS" in pink for Bass mode
+- Density bar uses pink color in Bass mode
+- Version bumped to 0.11.0
+
+## [0.10.0] - 2026-02-15
+
+### Added
+
+- **Simultaneous Lead + Drum playback**: both grids play at the same time through a single combined audio graph (8 lead + 8 drum voices summed together with shared effects chain)
+- Combined graph builder `build_tenori_graph()` in `src/engine/tenori.rs`: 16 voice units in one Net graph, single effects chain
+- **Ghost overlay**: when editing one mode, the other mode's active cells are visible as semi-transparent background (yellow for Lead, purple for Drum)
+- **Lead mode yellow color scheme**: Lead cells are now gold/yellow instead of purple, giving clear visual distinction between modes
+- Ghost overlay colors in theme: `GHOST_LEAD` (transparent yellow), `GHOST_DRUM` (transparent purple)
+- Lead-specific cell colors: `LEAD_CELL_ON`, `LEAD_CELL_ON_HOVER`, `LEAD_CELL_HIT`, `LEAD_CELL_HIT_GLOW`, `LEAD_ACCENT_*`
+- 2 new unit tests for the combined graph builder
+
+### Changed
+
+- Mode switching no longer triggers audio graph rebuild (both graphs always active)
+- `handle_step_change()` triggers both lead notes and drum hits simultaneously on every step
+- `sync_voice_configs_from_tenori()` always syncs lead parameters regardless of current edit mode
+- Grid glow pass and cell rendering use mode-aware colors (Lead = yellow, Drum = purple)
+- Density bar fill color adapts to current mode
+- Header badge uses yellow accent for Lead mode
+- Version bumped to 0.10.0
+
+### Removed
+
+- `active_mode` field from `TenoriApp` (no longer needed — mode only affects UI, not audio)
+
+## [0.9.0] - 2026-02-15
+
+### Added
+
+- **Drummer mode** for Tenori-on sequencer: each row is a percussion instrument instead of a pitched note
+- 16-instrument drum kit: Crash, Ride, Open HH, Closed HH, Clap, Rimshot, Snare, Tom Hi, Tom Mid, Tom Low, Conga Hi, Conga Lo, Cowbell, Claves, Kick, Kick Hard
+- Fixed-topology drum voice engine (`src/engine/drum.rs`): dual-source synthesis (noise + sine) mixed via `Shared` atomics — zero graph rebuilds between hits
+- `build_drum_voice_unit()` and `build_drum_poly_graph()` for 8-voice drum polyphony
+- Mode toggle: switch between Lead (melodic) and Drummer (percussion) with M key or UI button
+- Independent grids per mode: Lead and Drummer grids are preserved when switching
+- Drum Kit sidebar panel with global modifiers: Tune (pitch offset), Decay, Color (filter cutoff multiplier)
+- Drum accent colors (amber/orange) for Drummer mode header badge
+- `ChannelMode` enum (Lead, Drummer) in `TenoriState` with `active_grid()` / `active_grid_mut()` abstraction
+- 15 new unit tests: 7 in `engine/drum.rs` (kit entries, voice build, sound production, param changes), 8 in `state.rs` (mode switching, grid independence, label changes)
+
+### Changed
+
+- Grid, transport, header, shortcuts, and sidebar conditionally adapt to active mode
+- `TenoriApp` bridge supports dual audio graphs (Lead: `build_poly_graph`, Drummer: `build_drum_poly_graph`)
+- Mode switch triggers one-time graph rebuild; effects chain shared between modes
+- Undo/redo and draw modes operate on the active mode's grid
+- Footer shortcuts updated with M (mode toggle)
+- Version bumped to 0.9.0
+
+## [0.8.0] - 2026-02-15
+
+### Added
+
+- **Tenori-on sequencer mode** (`--tenori`): 16x16 matrix sequencer inspired by Yamaha Tenori-on
+- `TenoriSynth` UI module (`src/tenori_synth/`) with 19 files: state, theme, grid, transport, history, header, density bar, shortcuts, 4 widgets, 7 panels, mod.rs
+- `TenoriApp` bridge (`src/gui/tenori_app.rs`): maps UI state to audio engine parameters, triggers notes on playhead advancement
+- 16x16 grid matrix: rows = notes (C5 to A3), columns = time steps, with click/drag interaction
+- 3 draw modes: Toggle, Draw, Erase (keyboard shortcuts D/E/T)
+- Playhead with left-to-right advancement, triggering active cells as notes
+- Transport controls: play/pause, BPM slider (40–240), swing knob
+- Scale selector: Chromatic, Major, Minor, Pentatonic with MIDI note mapping
+- Sidebar synth panels: oscillator (waveform, pitch, detune), ADSR envelope, resonant filter (LP/HP/BP), LFO (pitch/filter/amp modulation), effects (reverb, delay, chorus)
+- Custom Tenori-on widgets: rotary knob (configurable size, drag, double-click reset), horizontal slider, toggle button group, panel wrapper
+- Density bar: per-column note density visualization aligned with grid
+- Header with LED status indicator, title, version, active note badges
+- Undo/redo system: 20-entry circular history (Ctrl+Z / Ctrl+Shift+Z)
+- Modifier clicks: Shift+click toggles entire row, Ctrl+click toggles entire column
+- Keyboard shortcuts: Space (play/pause), C (clear), Ctrl+Up/Down (BPM), Ctrl+1-4 (waveform), Tab (filter cycle), Shift+Tab (LFO target)
+- 8-voice polyphony with voice stealing for sequenced notes
+- Playhead column background highlight and cell glow effects (hit, on, hover states)
+- 23 new unit tests: 18 in `state.rs` (state operations, enums, scale mapping, MIDI) + 5 in `history.rs` (undo/redo, limits)
+- `run_tenori()` entry point in `gui/mod.rs` (1100x750 window)
+
+### Changed
+
+- `main.rs`: added `--tenori` CLI flag alongside existing `--gui`
+- Version bumped to 0.8.0
+
 ## [0.7.0] - 2026-02-15
 
 ### Added

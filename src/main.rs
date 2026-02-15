@@ -3,6 +3,7 @@ mod gui;
 mod midi;
 mod preset;
 mod synth_ui;
+mod tenori_synth;
 
 use clap::Parser;
 use engine::oscillator::Waveform;
@@ -29,11 +30,17 @@ struct Cli {
     /// Launch the graphical user interface
     #[arg(long)]
     gui: bool,
+
+    /// Launch the Tenori-on sequencer interface
+    #[arg(long)]
+    tenori: bool,
 }
 
 fn main() {
     let cli = Cli::parse();
-    if cli.gui {
+    if cli.tenori {
+        gui::run_tenori();
+    } else if cli.gui {
         gui::run();
     } else {
         engine::play(cli.waveform, cli.frequency, cli.amplitude, cli.duration);
